@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-type EditFile struct{}
+type EditFile struct {
+	confirm func(path, oldText, newText string) bool
+}
 
 func (t *EditFile) Name() string        { return "edit_file" }
 func (t *EditFile) Description() string { return "Replace exact text in a file" }
@@ -39,6 +41,9 @@ func (t *EditFile) Execute(input json.RawMessage) (string, error) {
 	content := string(data)
 	if !strings.Contains(content, p.OldText) {
 		return "", fmt.Errorf("old_text not found in %s", p.Path)
+	}
+	if t.confirm != nil && !t.confirm(p.Path, p.OldText, p.NewText) {
+		return "用户取消", nil
 	}
 	content = strings.Replace(content, p.OldText, p.NewText, 1)
 	if err := os.WriteFile(p.Path, []byte(content), 0644); err != nil {

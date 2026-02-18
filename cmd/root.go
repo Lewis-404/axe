@@ -8,6 +8,7 @@ import (
 	"github.com/Lewis-404/axe/internal/agent"
 	"github.com/Lewis-404/axe/internal/config"
 	"github.com/Lewis-404/axe/internal/context"
+	"github.com/Lewis-404/axe/internal/git"
 	"github.com/Lewis-404/axe/internal/history"
 	"github.com/Lewis-404/axe/internal/llm"
 	"github.com/Lewis-404/axe/internal/tools"
@@ -66,7 +67,11 @@ func Run(args []string) {
 	ctx := context.Collect(dir)
 	sys := fmt.Sprintf(systemPrompt, ctx)
 
-	registry := tools.NewRegistry(ui.Confirm)
+	registry := tools.NewRegistry(tools.RegistryOpts{
+		Confirm:          ui.Confirm,
+		ConfirmOverwrite: ui.ConfirmOverwrite,
+		ConfirmEdit:      ui.ConfirmEdit,
+	})
 	client := llm.NewClient(cfg, registry.Definitions())
 	ag := agent.New(client, registry, sys)
 	ag.OnTextDelta(ui.PrintTextDelta)
@@ -99,6 +104,14 @@ func Run(args []string) {
 		}
 	}
 
+	autoCommit := func(input string) {
+		if git.IsRepo(dir) && git.HasChanges(dir) {
+			if hash, err := git.AutoCommit(dir, input); err == nil {
+				fmt.Printf("\n📦 Auto-commit: %s\n", hash)
+			}
+		}
+	}
+
 	// single-shot mode
 	if len(args) > 0 {
 		prompt := strings.Join(args, " ")
@@ -106,13 +119,14 @@ func Run(args []string) {
 			ui.PrintError(err)
 			os.Exit(1)
 		}
+		autoCommit(prompt)
 		autoSave()
 		return
 	}
 
 	// interactive mode
 	fmt.Println("🪓 Axe v0.1.0 — vibe coding agent")
-	fmt.Println("   Type your request, or 'quit' to exit.")
+	fmt.Println("   Type your request, or 'quit' to exit. /help for commands.")
 	fmt.Println()
 
 	for {
@@ -125,10 +139,45 @@ func Run(args []string) {
 			fmt.Println("👋")
 			return
 		}
+		if strings.HasPrefix(input, "/") {
+			handleSlashCommand(input, ag, cfg)
+			continue
+		}
 		if err := ag.Run(input); err != nil {
 			ui.PrintError(err)
 		}
+		autoCommit(input)
 		autoSave()
 		fmt.Println()
+	}
+}
+
+func handleSlashCommand(input string, ag *agent.Agent, cfg *config.Config) {
+	parts := strings.Fields(input)
+	cmd := parts[0]
+
+	switch cmd {
+	case "/clear":
+		ag.Reset()
+		fmt.Println("🧹 上下文已清空")
+	case "/model":
+		if len(parts) > 1 {
+			cfg.SetModel(parts[1])
+			fmt.Printf("✅ 模型已切换为: %s\n", parts[1])
+		} else {
+			fmt.Printf("当前模型: %s\n", cfg.Model)
+		}
+	case "/cost":
+		in, out := ag.TotalUsage()
+		ui.PrintTotalUsage(in, out)
+	case "/help":
+		fmt.Println("可用命令:")
+		fmt.Println("  /clear        清空对话上下文")
+		fmt.Println("  /model        显示当前模型")
+		fmt.Println("  /model <name> 切换模型")
+		fmt.Println("  /cost         显示累计 token 用量")
+		fmt.Println("  /help         显示此帮助")
+	default:
+		fmt.Printf("未知命令: %s（输入 /help 查看可用命令）\n", cmd)
 	}
 }

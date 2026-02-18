@@ -20,6 +20,10 @@ func (c *Config) IsOpenAI() bool {
 	return c.Provider == "openai"
 }
 
+func (c *Config) SetModel(model string) {
+	c.Model = model
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		BaseURL:   "https://api.anthropic.com",

@@ -15,17 +15,23 @@ type Tool interface {
 }
 
 type Registry struct {
-	tools map[string]Tool
+	tools   map[string]Tool
 	confirm func(cmd string) bool
 }
 
-func NewRegistry(confirm func(string) bool) *Registry {
-	r := &Registry{tools: make(map[string]Tool), confirm: confirm}
+type RegistryOpts struct {
+	Confirm          func(string) bool
+	ConfirmOverwrite func(path string, oldLines, newLines int) bool
+	ConfirmEdit      func(path, oldText, newText string) bool
+}
+
+func NewRegistry(opts RegistryOpts) *Registry {
+	r := &Registry{tools: make(map[string]Tool), confirm: opts.Confirm}
 	r.Register(&ReadFile{})
-	r.Register(&WriteFile{})
-	r.Register(&EditFile{})
+	r.Register(&WriteFile{confirm: opts.ConfirmOverwrite})
+	r.Register(&EditFile{confirm: opts.ConfirmEdit})
 	r.Register(&ListDir{})
-	r.Register(&ExecCmd{confirm: confirm})
+	r.Register(&ExecCmd{confirm: opts.Confirm})
 	r.Register(&SearchFiles{})
 	return r
 }

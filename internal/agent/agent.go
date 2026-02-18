@@ -35,6 +35,8 @@ func (a *Agent) OnTool(fn func(string, string))                  { a.onTool = fn
 func (a *Agent) OnUsage(fn func(int, int, int, int))             { a.onUsage = fn }
 func (a *Agent) Messages() []llm.Message                         { return a.messages }
 func (a *Agent) SetMessages(msgs []llm.Message)                  { a.messages = msgs }
+func (a *Agent) TotalUsage() (int, int)                          { return a.totalIn, a.totalOut }
+func (a *Agent) Reset()                                          { a.messages = nil; a.totalIn = 0; a.totalOut = 0 }
 
 func (a *Agent) Run(userInput string) error {
 	a.messages = append(a.messages, llm.Message{

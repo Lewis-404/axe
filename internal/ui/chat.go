@@ -23,6 +23,16 @@ func Confirm(cmd string) bool {
 	return strings.ToLower(answer) == "y"
 }
 
+func ConfirmOverwrite(path string, oldLines, newLines int) bool {
+	fmt.Printf("\n📝 覆盖 %s (原 %d 行 → 新 %d 行)\n", path, oldLines, newLines)
+	return strings.ToLower(ReadLine("Allow? [y/N] ")) == "y"
+}
+
+func ConfirmEdit(path, oldText, newText string) bool {
+	fmt.Printf("\n✏️ 编辑 %s:\n  - %s\n  + %s\n", path, truncate(oldText, 30), truncate(newText, 30))
+	return strings.ToLower(ReadLine("Allow? [y/N] ")) == "y"
+}
+
 var streamStarted bool
 
 func PrintTextDelta(text string) {
@@ -57,6 +67,10 @@ func fmtTokens(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+func PrintTotalUsage(totalIn, totalOut int) {
+	fmt.Printf("📊 累计: ↑%s ↓%s\n", fmtTokens(totalIn), fmtTokens(totalOut))
 }
 
 func PrintError(err error) {
