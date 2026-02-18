@@ -1,20 +1,35 @@
 package ui
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/chzyer/readline"
 )
 
-func ReadLine(prompt string) string {
-	fmt.Print(prompt)
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	if scanner.Scan() {
-		return strings.TrimSpace(scanner.Text())
+var rl *readline.Instance
+
+func init() {
+	var err error
+	rl, err = readline.NewEx(&readline.Config{
+		Prompt:          "you> ",
+		InterruptPrompt: "^C",
+		EOFPrompt:       "quit",
+	})
+	if err != nil {
+		// fallback: won't happen in normal terminal
+		panic(err)
 	}
-	return ""
+}
+
+func ReadLine(prompt string) string {
+	rl.SetPrompt(prompt)
+	line, err := rl.Readline()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(line)
 }
 
 func Confirm(cmd string) bool {
@@ -77,9 +92,16 @@ func PrintError(err error) {
 	fmt.Fprintf(os.Stderr, "\n❌ %s\n", err)
 }
 
+func CloseRL() {
+	if rl != nil {
+		rl.Close()
+	}
+}
+
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return string(r[:n]) + "..."
 }
