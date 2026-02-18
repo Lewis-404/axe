@@ -58,3 +58,49 @@ type ErrorResponse struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
+
+// SSE streaming event types
+
+type StreamEvent struct {
+	Type string `json:"type"`
+}
+
+type MessageStartEvent struct {
+	Type    string   `json:"type"`
+	Message Response `json:"message"`
+}
+
+type ContentBlockStartEvent struct {
+	Type         string       `json:"type"`
+	Index        int          `json:"index"`
+	ContentBlock ContentBlock `json:"content_block"`
+}
+
+type ContentBlockDeltaEvent struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+	Delta struct {
+		Type        string `json:"type"`
+		Text        string `json:"text,omitempty"`
+		PartialJSON string `json:"partial_json,omitempty"`
+	} `json:"delta"`
+}
+
+type MessageDeltaEvent struct {
+	Type  string `json:"type"`
+	Delta struct {
+		StopReason string `json:"stop_reason"`
+	} `json:"delta"`
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+// StreamCallbacks holds callbacks for streaming events.
+type StreamCallbacks struct {
+	OnTextDelta      func(text string)
+	OnBlockStart     func(index int, block ContentBlock)
+	OnInputJSONDelta func(index int, partial string)
+	OnBlockStop      func(index int)
+	OnMessageDone    func(resp *Response)
+}

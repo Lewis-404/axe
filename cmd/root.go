@@ -8,6 +8,7 @@ import (
 	"github.com/Lewis-404/axe/internal/agent"
 	"github.com/Lewis-404/axe/internal/config"
 	"github.com/Lewis-404/axe/internal/context"
+	"github.com/Lewis-404/axe/internal/history"
 	"github.com/Lewis-404/axe/internal/llm"
 	"github.com/Lewis-404/axe/internal/tools"
 	"github.com/Lewis-404/axe/internal/ui"
@@ -41,6 +42,20 @@ func Run(args []string) {
 		return
 	}
 
+	// --list: show recent conversations
+	if len(args) > 0 && args[0] == "--list" {
+		lines, err := history.ListRecent(10)
+		if err != nil {
+			ui.PrintError(err)
+			os.Exit(1)
+		}
+		fmt.Println("Recent conversations:")
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		ui.PrintError(err)
@@ -54,8 +69,35 @@ func Run(args []string) {
 	registry := tools.NewRegistry(ui.Confirm)
 	client := llm.NewClient(cfg, registry.Definitions())
 	ag := agent.New(client, registry, sys)
-	ag.OnText(ui.PrintAssistant)
+	ag.OnTextDelta(ui.PrintTextDelta)
+	ag.OnBlockDone(ui.PrintBlockDone)
 	ag.OnTool(ui.PrintTool)
+	ag.OnUsage(ui.PrintUsage)
+
+	// --resume: restore latest conversation
+	var savePath string
+	resume := len(args) > 0 && args[0] == "--resume"
+	if resume {
+		p, msgs, err := history.LoadLatest()
+		if err != nil {
+			ui.PrintError(err)
+			os.Exit(1)
+		}
+		ag.SetMessages(msgs)
+		savePath = p
+		args = args[1:]
+		fmt.Println("📂 Resumed previous conversation")
+	} else {
+		savePath = history.NewFilePath()
+	}
+
+	autoSave := func() {
+		if msgs := ag.Messages(); len(msgs) > 0 {
+			if err := history.SaveTo(savePath, msgs); err != nil {
+				ui.PrintError(fmt.Errorf("save history: %w", err))
+			}
+		}
+	}
 
 	// single-shot mode
 	if len(args) > 0 {
@@ -64,6 +106,7 @@ func Run(args []string) {
 			ui.PrintError(err)
 			os.Exit(1)
 		}
+		autoSave()
 		return
 	}
 
@@ -77,12 +120,14 @@ func Run(args []string) {
 			continue
 		}
 		if input == "quit" || input == "exit" {
+			autoSave()
 			fmt.Println("👋")
 			return
 		}
 		if err := ag.Run(input); err != nil {
 			ui.PrintError(err)
 		}
+		autoSave()
 		fmt.Println()
 	}
 }
