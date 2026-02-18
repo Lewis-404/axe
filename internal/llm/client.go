@@ -12,17 +12,47 @@ import (
 	"github.com/Lewis-404/axe/internal/config"
 )
 
+// Provider is the interface both Anthropic and OpenAI backends implement.
+type Provider interface {
+	Send(system string, messages []Message) (*Response, error)
+	SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error)
+}
+
+// Client wraps a Provider and is the public API used by the agent.
 type Client struct {
-	cfg    *config.Config
-	http   *http.Client
-	tools  []ToolDef
+	provider Provider
 }
 
 func NewClient(cfg *config.Config, tools []ToolDef) *Client {
-	return &Client{cfg: cfg, http: &http.Client{}, tools: tools}
+	var p Provider
+	if cfg.IsOpenAI() {
+		p = NewOpenAIClient(cfg, tools)
+	} else {
+		p = NewAnthropicClient(cfg, tools)
+	}
+	return &Client{provider: p}
 }
 
 func (c *Client) Send(system string, messages []Message) (*Response, error) {
+	return c.provider.Send(system, messages)
+}
+
+func (c *Client) SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error) {
+	return c.provider.SendStream(system, messages, cb)
+}
+
+// AnthropicClient implements Provider for the Anthropic API.
+type AnthropicClient struct {
+	cfg   *config.Config
+	http  *http.Client
+	tools []ToolDef
+}
+
+func NewAnthropicClient(cfg *config.Config, tools []ToolDef) *AnthropicClient {
+	return &AnthropicClient{cfg: cfg, http: &http.Client{}, tools: tools}
+}
+
+func (c *AnthropicClient) Send(system string, messages []Message) (*Response, error) {
 	req := Request{
 		Model:     c.cfg.Model,
 		MaxTokens: c.cfg.MaxTokens,
@@ -72,7 +102,7 @@ func (c *Client) Send(system string, messages []Message) (*Response, error) {
 	return &result, nil
 }
 
-func (c *Client) SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error) {
+func (c *AnthropicClient) SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error) {
 	req := struct {
 		Request
 		Stream bool `json:"stream"`
@@ -143,7 +173,6 @@ func (c *Client) SendStream(system string, messages []Message, cb StreamCallback
 		case "content_block_start":
 			var e ContentBlockStartEvent
 			if json.Unmarshal(data, &e) == nil {
-				// grow content slice to fit index
 				for len(result.Content) <= e.Index {
 					result.Content = append(result.Content, ContentBlock{})
 				}

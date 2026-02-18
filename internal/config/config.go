@@ -9,10 +9,15 @@ import (
 )
 
 type Config struct {
-	APIKey   string `yaml:"api_key"`
-	BaseURL  string `yaml:"base_url"`
-	Model    string `yaml:"model"`
-	MaxTokens int   `yaml:"max_tokens"`
+	Provider  string `yaml:"provider"`
+	APIKey    string `yaml:"api_key"`
+	BaseURL   string `yaml:"base_url"`
+	Model     string `yaml:"model"`
+	MaxTokens int    `yaml:"max_tokens"`
+}
+
+func (c *Config) IsOpenAI() bool {
+	return c.Provider == "openai"
 }
 
 func DefaultConfig() *Config {
@@ -35,37 +40,36 @@ func configPath() string {
 func Load() (*Config, error) {
 	cfg := DefaultConfig()
 
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		cfg.APIKey = key
-	}
-	if url := os.Getenv("ANTHROPIC_BASE_URL"); url != "" {
-		cfg.BaseURL = url
-	}
-
 	data, err := os.ReadFile(configPath())
 	if err != nil {
-		if os.IsNotExist(err) {
-			if cfg.APIKey == "" {
-				return nil, fmt.Errorf("no config found, run 'axe init' first")
-			}
-			return cfg, nil
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
-		return nil, err
+	} else {
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("parse config: %w", err)
+		}
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-
-	if envKey := os.Getenv("ANTHROPIC_API_KEY"); envKey != "" {
-		cfg.APIKey = envKey
-	}
-	if envURL := os.Getenv("ANTHROPIC_BASE_URL"); envURL != "" {
-		cfg.BaseURL = envURL
+	// env overrides
+	if cfg.IsOpenAI() {
+		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+			cfg.APIKey = key
+		}
+		if url := os.Getenv("OPENAI_BASE_URL"); url != "" {
+			cfg.BaseURL = url
+		}
+	} else {
+		if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+			cfg.APIKey = key
+		}
+		if url := os.Getenv("ANTHROPIC_BASE_URL"); url != "" {
+			cfg.BaseURL = url
+		}
 	}
 
 	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("api_key not set in config or ANTHROPIC_API_KEY env")
+		return nil, fmt.Errorf("api_key not set in config or environment")
 	}
 	return cfg, nil
 }

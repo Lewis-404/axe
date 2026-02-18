@@ -112,7 +112,8 @@ func Run(args []string) {
 
 	// interactive mode
 	fmt.Println("🪓 Axe v0.1.0 — vibe coding agent")
-	fmt.Println("   Type your request, or 'quit' to exit.\n")
+	fmt.Println("   Type your request, or 'quit' to exit.")
+	fmt.Println()
 
 	for {
 		input := ui.ReadLine("you> ")
