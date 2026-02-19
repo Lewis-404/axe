@@ -67,3 +67,13 @@ func Undo(dir string) (string, error) {
 	}
 	return summary, nil
 }
+
+func Diff(dir string) (string, error) {
+	cmd := exec.Command("git", "diff", "--stat", "--color=always")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}

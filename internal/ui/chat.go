@@ -31,6 +31,8 @@ var slashCommands = []slashCmd{
 	{"/ask", "临时用另一个模型回答"},
 	{"/search", "搜索历史对话"},
 	{"/undo", "撤销上一次 git commit"},
+	{"/diff", "查看未提交的变更"},
+	{"/retry", "重试上一轮对话"},
 	{"/budget", "设置费用上限"},
 	{"/cost", "显示累计 token 用量和费用"},
 	{"/help", "显示帮助"},

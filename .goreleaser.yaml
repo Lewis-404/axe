@@ -1,0 +1,38 @@
+version: 2
+
+builds:
+  - main: .
+    binary: axe
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+
+brews:
+  - repository:
+      owner: Lewis-404
+      name: homebrew-tap
+    homepage: "https://github.com/Lewis-404/axe"
+    description: "Vibe coding agent - CLI tool for AI-assisted development"
+    install: |
+      bin.install "axe"

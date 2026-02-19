@@ -86,6 +86,9 @@ axe "帮我写一个 HTTP server"
 # 非交互模式（只输出文本，自动允许所有操作）
 axe --print "解释这段代码"
 
+# 自动模式（完整UI但自动允许所有操作）
+axe --auto "重构这个函数"
+
 # 管道模式
 echo "帮我写一个排序函数" | axe
 cat error.log | axe "分析这个错误"
@@ -121,6 +124,8 @@ axe version
 | `/ask <model> <prompt>` | 临时用另一个模型回答 |
 | `/search <keyword>` | 搜索历史对话 |
 | `/undo` | 撤销上一次 git commit |
+| `/diff` | 查看未提交的变更 |
+| `/retry` | 重试上一轮对话 |
 | `/budget <$>` | 设置费用上限 |
 | `/cost` | 查看累计 token 用量和费用 |
 | `/project:<name>` | 执行自定义项目命令 |

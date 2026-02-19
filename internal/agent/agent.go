@@ -49,6 +49,22 @@ func (a *Agent) SetMessages(msgs []llm.Message)                  { a.messages = 
 func (a *Agent) TotalUsage() (int, int)                          { return a.totalIn, a.totalOut }
 func (a *Agent) Reset()                                          { a.messages = nil; a.totalIn = 0; a.totalOut = 0 }
 
+// PopLastRound removes the last user+assistant exchange and returns the user input
+func (a *Agent) PopLastRound() string {
+	// find last user message
+	for i := len(a.messages) - 1; i >= 0; i-- {
+		if a.messages[i].Role == llm.RoleUser {
+			for _, b := range a.messages[i].Content {
+				if b.Type == "text" && b.Text != "" {
+					a.messages = a.messages[:i]
+					return b.Text
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // estimateTokens roughly estimates token count (~4 chars per token for mixed CJK/English)
 func estimateTokens(msgs []llm.Message) int {
 	chars := 0

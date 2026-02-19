@@ -52,6 +52,7 @@ models:
 - `axe` — 进入交互式对话
 - `axe "prompt"` — 单次执行模式
 - `axe --print "prompt"` — 非交互模式（只输出文本，自动允许所有操作）
+- `axe --auto "prompt"` — 自动模式（完整UI但自动允许所有操作）
 - `echo "prompt" | axe` — 管道模式（等同 --print）
 - `axe --resume` — 恢复最近一次对话
 - `axe --list` — 列出最近 10 次对话
@@ -71,6 +72,8 @@ models:
 - `/ask <model> <prompt>` — 临时用另一个模型回答
 - `/search <keyword>` — 搜索历史对话内容
 - `/undo` — 撤销上一次 git commit（mixed reset）
+- `/diff` — 查看未提交的变更
+- `/retry` — 重试上一轮对话
 - `/budget <$>` — 设置费用上限（off 关闭）
 - `/cost` — 查看累计 token 用量和费用
 - `/project:<name>` — 执行自定义项目命令（从 .axe/commands/*.md 加载）

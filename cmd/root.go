@@ -25,6 +25,8 @@ import (
 	"github.com/Lewis-404/axe/internal/ui"
 )
 
+var Version = "dev"
+
 const systemPrompt = `You are Axe, a vibe coding agent. You help users build software by reading, writing, and editing code files, executing commands, and searching codebases.
 
 Rules:
@@ -51,7 +53,7 @@ func Run(args []string) {
 	}
 
 	if len(args) > 0 && args[0] == "version" {
-		fmt.Println("axe v0.6.0")
+		fmt.Printf("axe %s\n", Version)
 		return
 	}
 
@@ -71,11 +73,15 @@ func Run(args []string) {
 
 	// --print: non-interactive mode (output only text, auto-allow all tools)
 	printMode := false
-	for i, a := range args {
-		if a == "--print" || a == "-p" {
+	autoMode := false
+	for i := len(args) - 1; i >= 0; i-- {
+		switch args[i] {
+		case "--print", "-p":
 			printMode = true
 			args = append(args[:i], args[i+1:]...)
-			break
+		case "--auto":
+			autoMode = true
+			args = append(args[:i], args[i+1:]...)
 		}
 	}
 
@@ -110,8 +116,8 @@ func Run(args []string) {
 	perms := permissions.Load()
 
 	var registryOpts tools.RegistryOpts
-	if printMode {
-		// auto-allow everything in print mode
+	if printMode || autoMode {
+		// auto-allow everything in print/auto mode
 		registryOpts = tools.RegistryOpts{
 			Confirm:          func(string) bool { return true },
 			ConfirmOverwrite: func(string, int, int) bool { return true },
@@ -320,7 +326,7 @@ func Run(args []string) {
 	pkgCustomCmds = customCmds
 
 	// interactive mode
-	fmt.Println("🪓 Axe v0.6.0 — vibe coding agent")
+	fmt.Printf("🪓 Axe %s — vibe coding agent\n", Version)
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -548,6 +554,29 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 				fmt.Printf("💰 预算已设为 $%.2f\n", val)
 			}
 		}
+	case "/diff":
+		dir, _ := os.Getwd()
+		if !git.IsRepo(dir) {
+			fmt.Println("⚠️ 当前目录不是 git 仓库")
+		} else {
+			out, err := git.Diff(dir)
+			if err != nil {
+				ui.PrintError(err)
+			} else if out == "" {
+				fmt.Println("✅ 没有未提交的变更")
+			} else {
+				fmt.Println(out)
+			}
+		}
+	case "/retry":
+		if last := ag.PopLastRound(); last == "" {
+			fmt.Println("⚠️ 没有可重试的对话")
+		} else {
+			fmt.Println("🔄 重试上一轮...")
+			if err := ag.Run(last); err != nil {
+				ui.PrintError(err)
+			}
+		}
 	case "/init":
 		dir, _ := os.Getwd()
 		target := filepath.Join(dir, "CLAUDE.md")
@@ -574,6 +603,8 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /ask <m> <p>    临时用另一个模型回答")
 		fmt.Println("  /search <kw>    搜索历史对话")
 		fmt.Println("  /undo           撤销上一次 git commit")
+		fmt.Println("  /diff           查看未提交的变更")
+		fmt.Println("  /retry          重试上一轮对话")
 		fmt.Println("  /budget <$>     设置费用上限 (off 关闭)")
 		fmt.Println("  /cost           显示累计 token 用量和费用")
 		fmt.Println("  /exit           退出 Axe")
