@@ -51,7 +51,7 @@ func Run(args []string) {
 	}
 
 	if len(args) > 0 && args[0] == "version" {
-		fmt.Println("axe v0.5.0")
+		fmt.Println("axe v0.6.0")
 		return
 	}
 
@@ -320,7 +320,7 @@ func Run(args []string) {
 	pkgCustomCmds = customCmds
 
 	// interactive mode
-	fmt.Println("🪓 Axe v0.5.0 — vibe coding agent")
+	fmt.Println("🪓 Axe v0.6.0 — vibe coding agent")
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -481,6 +481,73 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		} else {
 			fmt.Println("⚠️ 当前没有对话内容")
 		}
+	case "/undo":
+		dir, _ := os.Getwd()
+		if !git.IsRepo(dir) {
+			fmt.Println("⚠️ 当前目录不是 git 仓库")
+		} else if !git.HasCommits(dir) {
+			fmt.Println("⚠️ 没有可撤销的 commit")
+		} else {
+			out, err := git.Undo(dir)
+			if err != nil {
+				ui.PrintError(err)
+			} else {
+				fmt.Printf("⏪ 已撤销: %s\n", out)
+			}
+		}
+	case "/search":
+		if len(parts) < 2 {
+			fmt.Println("用法: /search <关键词>")
+		} else {
+			keyword := strings.Join(parts[1:], " ")
+			results, err := history.Search(keyword, 10)
+			if err != nil {
+				ui.PrintError(err)
+			} else if len(results) == 0 {
+				fmt.Printf("🔍 未找到包含 \"%s\" 的对话\n", keyword)
+			} else {
+				fmt.Printf("🔍 搜索 \"%s\" 结果:\n", keyword)
+				for _, r := range results {
+					fmt.Println(r)
+				}
+			}
+		}
+	case "/ask":
+		if len(parts) < 3 {
+			fmt.Println("用法: /ask <model> <prompt>")
+		} else {
+			modelName := parts[1]
+			prompt := strings.Join(parts[2:], " ")
+			origModel := client.ModelName()
+			if !client.SwitchModel(modelName) {
+				fmt.Printf("❌ 未找到模型: %s\n", modelName)
+			} else {
+				fmt.Printf("🔄 临时使用 %s\n", modelName)
+				if err := ag.Run(prompt); err != nil {
+					ui.PrintError(err)
+				}
+				client.SwitchModel(origModel)
+			}
+		}
+	case "/budget":
+		if len(parts) < 2 {
+			fmt.Println("用法: /budget <美元金额>  (如 /budget 0.5)")
+			fmt.Println("      /budget off  关闭预算限制")
+		} else if parts[1] == "off" {
+			ag.SetBudget(0, nil)
+			fmt.Println("💰 预算限制已关闭")
+		} else {
+			val, err := strconv.ParseFloat(parts[1], 64)
+			if err != nil || val <= 0 {
+				fmt.Println("❌ 请输入有效金额")
+			} else {
+				model := client.ModelName()
+				ag.SetBudget(val, func(in, out int) float64 {
+					return pricing.Cost(model, in, out)
+				})
+				fmt.Printf("💰 预算已设为 $%.2f\n", val)
+			}
+		}
 	case "/init":
 		dir, _ := os.Getwd()
 		target := filepath.Join(dir, "CLAUDE.md")
@@ -502,12 +569,16 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /init           为当前项目生成 CLAUDE.md")
 		fmt.Println("  /list           查看最近对话记录")
 		fmt.Println("  /resume         选择并恢复对话")
-		fmt.Println("  /resume <编号>  恢复指定对话（编号从 /list 获取）")
 		fmt.Println("  /model          显示当前和可用模型")
 		fmt.Println("  /model <name>   切换模型")
+		fmt.Println("  /ask <m> <p>    临时用另一个模型回答")
+		fmt.Println("  /search <kw>    搜索历史对话")
+		fmt.Println("  /undo           撤销上一次 git commit")
+		fmt.Println("  /budget <$>     设置费用上限 (off 关闭)")
 		fmt.Println("  /cost           显示累计 token 用量和费用")
 		fmt.Println("  /exit           退出 Axe")
 		fmt.Println("  /help           显示此帮助")
+		fmt.Println("  💡 支持图片: 在 prompt 中直接写图片路径")
 		if h := commands.FormatHelp(pkgCustomCmds); h != "" {
 			fmt.Print(h)
 		}

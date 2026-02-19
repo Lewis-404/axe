@@ -200,3 +200,38 @@ func ListRecentIndexed(n int) ([]string, error) {
 	}
 	return lines, nil
 }
+
+func Search(keyword string, maxResults int) ([]string, error) {
+	files, err := listFiles()
+	if err != nil {
+		return nil, err
+	}
+	keyword = strings.ToLower(keyword)
+	var results []string
+	for i := len(files) - 1; i >= 0 && len(results) < maxResults; i-- {
+		data, err := os.ReadFile(files[i])
+		if err != nil {
+			continue
+		}
+		var rec Record
+		if json.Unmarshal(data, &rec) != nil {
+			continue
+		}
+		for _, m := range rec.Messages {
+			for _, b := range m.Content {
+				if b.Type == "text" && strings.Contains(strings.ToLower(b.Text), keyword) {
+					name := filepath.Base(files[i])
+					ts := name[:len(name)-len(".json")]
+					snippet := b.Text
+					r := []rune(snippet)
+					if len(r) > 60 {
+						snippet = string(r[:60]) + "..."
+					}
+					results = append(results, fmt.Sprintf("  [%s] %s: %s", ts, m.Role, snippet))
+					break
+				}
+			}
+		}
+	}
+	return results, nil
+}

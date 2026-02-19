@@ -68,6 +68,10 @@ models:
 - `/model` — 查看当前和可用模型
 - `/model <name>` — 运行时切换模型
 - `/fork` — 从当前对话创建分支
+- `/ask <model> <prompt>` — 临时用另一个模型回答
+- `/search <keyword>` — 搜索历史对话内容
+- `/undo` — 撤销上一次 git commit（mixed reset）
+- `/budget <$>` — 设置费用上限（off 关闭）
 - `/cost` — 查看累计 token 用量和费用
 - `/project:<name>` — 执行自定义项目命令（从 .axe/commands/*.md 加载）
 - `/help` — 显示命令列表

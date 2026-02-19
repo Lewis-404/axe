@@ -45,3 +45,25 @@ func AutoCommit(dir string, summary string) (string, error) {
 	}
 	return strings.TrimSpace(string(hash)), nil
 }
+
+func HasCommits(dir string) bool {
+	cmd := exec.Command("git", "log", "-1", "--format=%s")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
+func Undo(dir string) (string, error) {
+	// get last commit message for display
+	msg := exec.Command("git", "log", "-1", "--format=%h %s")
+	msg.Dir = dir
+	out, _ := msg.Output()
+	summary := strings.TrimSpace(string(out))
+
+	cmd := exec.Command("git", "reset", "--mixed", "HEAD~1")
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return summary, nil
+}

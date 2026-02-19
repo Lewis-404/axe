@@ -17,6 +17,10 @@ Go 写的 CLI vibe coding agent。用自然语言描述需求，axe 自动读取
 - 🔧 **自定义命令** — `.axe/commands/` 目录下定义项目专属命令
 - 📋 **项目级配置** — `.axe/settings.yaml` 覆盖全局配置
 - 🖥️ **Pipe 模式** — `--print` 或 stdin 管道，适合 CI/CD 集成
+- 🖼️ **图片理解** — prompt 中直接写图片路径，自动发送给 Vision 模型
+- ⏪ **Undo 撤销** — `/undo` 基于 git 撤销上一次修改
+- 💰 **Token 预算** — `/budget` 设置费用上限，防止意外消耗
+- 🔍 **对话搜索** — `/search` 搜索历史对话内容
 - ⌨️ **中文友好** — 完整的 CJK 输入支持
 
 ## 安装
@@ -114,6 +118,10 @@ axe version
 | `/model` | 查看当前和可用模型 |
 | `/model <name>` | 切换模型 |
 | `/fork` | 从当前对话创建分支 |
+| `/ask <model> <prompt>` | 临时用另一个模型回答 |
+| `/search <keyword>` | 搜索历史对话 |
+| `/undo` | 撤销上一次 git commit |
+| `/budget <$>` | 设置费用上限 |
 | `/cost` | 查看累计 token 用量和费用 |
 | `/project:<name>` | 执行自定义项目命令 |
 | `/help` | 显示命令列表 |

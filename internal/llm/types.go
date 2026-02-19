@@ -2,6 +2,12 @@ package llm
 
 type Role string
 
+type ImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
@@ -16,6 +22,7 @@ type ContentBlock struct {
 	ToolID  string    `json:"tool_use_id,omitempty"`
 	Content string    `json:"content,omitempty"`
 	IsError bool      `json:"is_error,omitempty"`
+	Source  *ImageSource `json:"source,omitempty"`
 }
 
 type Message struct {

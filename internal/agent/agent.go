@@ -21,7 +21,9 @@ type Agent struct {
 	onCompact   func(before, after int)
 	totalIn     int
 	totalOut    int
-	maxContext  int // max tokens before auto-compact, 0 = disabled
+	maxContext  int     // max tokens before auto-compact, 0 = disabled
+	budgetMax   float64 // max cost in USD, 0 = unlimited
+	costFn      func(int, int) float64 // cost calculator
 }
 
 func New(client *llm.Client, registry *tools.Registry, systemPrompt string) *Agent {
@@ -38,6 +40,10 @@ func (a *Agent) OnBlockDone(fn func())                           { a.onBlockDone
 func (a *Agent) OnTool(fn func(string, string))                  { a.onTool = fn }
 func (a *Agent) OnUsage(fn func(int, int, int, int))             { a.onUsage = fn }
 func (a *Agent) OnCompact(fn func(int, int))                     { a.onCompact = fn }
+func (a *Agent) SetBudget(max float64, costFn func(int, int) float64) {
+	a.budgetMax = max
+	a.costFn = costFn
+}
 func (a *Agent) Messages() []llm.Message                         { return a.messages }
 func (a *Agent) SetMessages(msgs []llm.Message)                  { a.messages = msgs }
 func (a *Agent) TotalUsage() (int, int)                          { return a.totalIn, a.totalOut }
@@ -115,9 +121,20 @@ func (a *Agent) autoCompact() {
 const maxIterations = 40
 
 func (a *Agent) Run(userInput string) error {
+	// parse image paths from input
+	imageBlocks, textOnly := llm.ParseImageBlocks(userInput)
+	var content []llm.ContentBlock
+	if len(imageBlocks) > 0 {
+		content = append(content, imageBlocks...)
+		if textOnly != "" {
+			content = append(content, llm.ContentBlock{Type: "text", Text: textOnly})
+		}
+	} else {
+		content = []llm.ContentBlock{{Type: "text", Text: userInput}}
+	}
 	a.messages = append(a.messages, llm.Message{
 		Role:    llm.RoleUser,
-		Content: []llm.ContentBlock{{Type: "text", Text: userInput}},
+		Content: content,
 	})
 
 	// check if we need to compact before sending
@@ -148,6 +165,19 @@ func (a *Agent) Run(userInput string) error {
 
 		roundIn += resp.Usage.InputTokens
 		roundOut += resp.Usage.OutputTokens
+
+		// budget check
+		if a.budgetMax > 0 && a.costFn != nil {
+			totalCost := a.costFn(a.totalIn+roundIn, a.totalOut+roundOut)
+			if totalCost >= a.budgetMax {
+				a.totalIn += roundIn
+				a.totalOut += roundOut
+				if a.onUsage != nil {
+					a.onUsage(roundIn, roundOut, a.totalIn, a.totalOut)
+				}
+				return fmt.Errorf("budget exceeded: $%.4f >= $%.4f limit", totalCost, a.budgetMax)
+			}
+		}
 
 		for idx, raw := range toolInputs {
 			if idx < len(resp.Content) && resp.Content[idx].Type == "tool_use" {
