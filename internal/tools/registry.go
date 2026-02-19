@@ -15,8 +15,9 @@ type Tool interface {
 }
 
 type Registry struct {
-	tools   map[string]Tool
-	confirm func(cmd string) bool
+	tools    map[string]Tool
+	confirm  func(cmd string) bool
+	postHook PostExecHook
 }
 
 type RegistryOpts struct {
@@ -24,6 +25,9 @@ type RegistryOpts struct {
 	ConfirmOverwrite func(path string, oldLines, newLines int) bool
 	ConfirmEdit      func(path, oldText, newText string) bool
 }
+
+// PostExecHook is called after a tool executes successfully. name is the tool name, result is the output.
+type PostExecHook func(name string, input json.RawMessage, result string) string
 
 func NewRegistry(opts RegistryOpts) *Registry {
 	r := &Registry{tools: make(map[string]Tool), confirm: opts.Confirm}
@@ -33,8 +37,11 @@ func NewRegistry(opts RegistryOpts) *Registry {
 	r.Register(&ListDir{})
 	r.Register(&ExecCmd{confirm: opts.Confirm})
 	r.Register(&SearchFiles{})
+	r.Register(&Think{})
 	return r
 }
+
+func (r *Registry) SetPostExecHook(h PostExecHook) { r.postHook = h }
 
 func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
@@ -45,7 +52,13 @@ func (r *Registry) Execute(name string, input json.RawMessage) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
-	return t.Execute(input)
+	result, err := t.Execute(input)
+	if err == nil && r.postHook != nil {
+		if extra := r.postHook(name, input, result); extra != "" {
+			result += "\n\n" + extra
+		}
+	}
+	return result, err
 }
 
 func (r *Registry) Definitions() []llm.ToolDef {

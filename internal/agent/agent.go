@@ -38,6 +38,8 @@ func (a *Agent) SetMessages(msgs []llm.Message)                  { a.messages = 
 func (a *Agent) TotalUsage() (int, int)                          { return a.totalIn, a.totalOut }
 func (a *Agent) Reset()                                          { a.messages = nil; a.totalIn = 0; a.totalOut = 0 }
 
+const maxIterations = 40
+
 func (a *Agent) Run(userInput string) error {
 	a.messages = append(a.messages, llm.Message{
 		Role:    llm.RoleUser,
@@ -45,8 +47,9 @@ func (a *Agent) Run(userInput string) error {
 	})
 
 	var roundIn, roundOut int
+	var consecutiveErrors int
 
-	for {
+	for iter := 0; iter < maxIterations; iter++ {
 		toolInputs := map[int]string{}
 
 		cb := llm.StreamCallbacks{
@@ -85,6 +88,7 @@ func (a *Agent) Run(userInput string) error {
 		})
 
 		var toolResults []llm.ContentBlock
+		hasError := false
 		for _, block := range resp.Content {
 			if block.Type != "tool_use" {
 				continue
@@ -95,6 +99,7 @@ func (a *Agent) Run(userInput string) error {
 			inputBytes, _ := json.Marshal(block.Input)
 			result, err := a.registry.Execute(block.Name, inputBytes)
 			if err != nil {
+				hasError = true
 				toolResults = append(toolResults, llm.ContentBlock{
 					Type:    "tool_result",
 					ToolID:  block.ID,
@@ -113,6 +118,20 @@ func (a *Agent) Run(userInput string) error {
 			}
 		}
 
+		if hasError {
+			consecutiveErrors++
+		} else {
+			consecutiveErrors = 0
+		}
+		if consecutiveErrors >= 3 {
+			a.totalIn += roundIn
+			a.totalOut += roundOut
+			if a.onUsage != nil {
+				a.onUsage(roundIn, roundOut, a.totalIn, a.totalOut)
+			}
+			return fmt.Errorf("3 consecutive tool errors, stopping to avoid loop")
+		}
+
 		if len(toolResults) == 0 {
 			a.totalIn += roundIn
 			a.totalOut += roundOut
@@ -127,4 +146,12 @@ func (a *Agent) Run(userInput string) error {
 			Content: toolResults,
 		})
 	}
+
+	// max iterations reached
+	a.totalIn += roundIn
+	a.totalOut += roundOut
+	if a.onUsage != nil {
+		a.onUsage(roundIn, roundOut, a.totalIn, a.totalOut)
+	}
+	return fmt.Errorf("reached max iterations (%d), task may be incomplete", maxIterations)
 }
