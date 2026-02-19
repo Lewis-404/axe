@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Lewis-404/axe/internal/llm"
+	"github.com/nyaosorg/go-box/v3"
 	"github.com/nyaosorg/go-readline-ny"
 	"github.com/nyaosorg/go-readline-ny/keys"
 	"golang.org/x/term"
@@ -44,10 +45,6 @@ var slashCommands = []slashCmd{
 	{"/exit", "退出 Axe"},
 }
 
-var lastHintLines int
-var hintSelected int // -1 = none selected
-var hintMatches []slashCmd
-
 // RegisterSkillCommands adds skills as slash commands
 func RegisterSkillCommands(names []string, descs []string) {
 	for i, name := range names {
@@ -59,137 +56,75 @@ func RegisterSkillCommands(names []string, descs []string) {
 	}
 }
 
-func clearHints() {
-	if lastHintLines == 0 {
-		return
-	}
-	var buf strings.Builder
-	buf.WriteString("\033[s") // save cursor
-	for i := 0; i < lastHintLines; i++ {
-		buf.WriteString("\033[B\033[2K") // move down + clear line
-	}
-	buf.WriteString("\033[u") // restore cursor
-	os.Stdout.WriteString(buf.String())
-	lastHintLines = 0
-	hintMatches = nil
-	hintSelected = -1
-}
-
-func showHints(line string) {
-	clearHints()
-	if !strings.HasPrefix(line, "/") || strings.Contains(line, " ") {
-		return
-	}
-	var matches []slashCmd
-	for _, cmd := range slashCommands {
-		if strings.HasPrefix(cmd.name, line) {
-			matches = append(matches, cmd)
-		}
-	}
-	if len(matches) == 0 {
-		return
-	}
-	hintMatches = matches
-	renderHints()
-}
-
-func renderHints() {
-	// clear previous hints first
-	if lastHintLines > 0 {
-		var clr strings.Builder
-		clr.WriteString("\033[s")
-		for i := 0; i < lastHintLines; i++ {
-			clr.WriteString("\033[B\033[2K")
-		}
-		clr.WriteString("\033[u")
-		os.Stdout.WriteString(clr.String())
-	}
-	var buf strings.Builder
-	buf.WriteString("\033[s") // save cursor
-	for i, m := range hintMatches {
-		if i == hintSelected {
-			buf.WriteString(fmt.Sprintf("\n  \033[7m\033[36m%s\033[0m  \033[7m\033[90m%s\033[0m", m.name, m.desc))
-		} else {
-			buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.name, m.desc))
-		}
-	}
-	buf.WriteString("\033[u") // restore cursor
-	os.Stdout.WriteString(buf.String())
-	lastHintLines = len(hintMatches)
-}
-
 func init() {
 	editor = &readline.Editor{
 		PromptWriter: func(w io.Writer) (int, error) {
 			return io.WriteString(w, "\033[36m❯\033[0m ")
 		},
 		Writer: os.Stdout,
-		AfterCommand: func(b *readline.Buffer) {
-			showHints(b.String())
-		},
 	}
 
-	// Tab completion: if hint selected, fill it; otherwise normal completion
+	// Tab: complete slash commands, double-tab shows list via go-box
 	editor.BindKey(keys.CtrlI, readline.AnonymousCommand(func(ctx context.Context, b *readline.Buffer) readline.Result {
-		if hintSelected >= 0 && hintSelected < len(hintMatches) {
-			selected := hintMatches[hintSelected].name + " "
-			b.ReplaceAndRepaint(0, selected)
-			clearHints()
+		line := b.String()
+		if !strings.HasPrefix(line, "/") {
 			return readline.CONTINUE
 		}
-		// default: complete first match
-		line := b.String()
-		if strings.HasPrefix(line, "/") {
-			var matches []string
+
+		var matches []string
+		for _, cmd := range slashCommands {
+			if strings.HasPrefix(cmd.name, line) {
+				matches = append(matches, cmd.name)
+			}
+		}
+		if len(matches) == 0 {
+			return readline.CONTINUE
+		}
+		if len(matches) == 1 {
+			b.ReplaceAndRepaint(0, matches[0]+" ")
+			return readline.CONTINUE
+		}
+
+		// find common prefix
+		prefix := matches[0]
+		for _, m := range matches[1:] {
+			for !strings.HasPrefix(m, prefix) {
+				prefix = prefix[:len(prefix)-1]
+			}
+		}
+		if prefix != line {
+			b.ReplaceAndRepaint(0, prefix)
+			return readline.CONTINUE
+		}
+
+		// show list with descriptions
+		b.Out.WriteByte('\n')
+		var display []string
+		for _, m := range matches {
+			desc := ""
 			for _, cmd := range slashCommands {
-				if strings.HasPrefix(cmd.name, line) {
-					matches = append(matches, cmd.name)
+				if cmd.name == m {
+					desc = cmd.desc
+					break
 				}
 			}
-			if len(matches) == 1 {
-				b.ReplaceAndRepaint(0, matches[0] + " ")
-				clearHints()
+			if desc != "" {
+				display = append(display, fmt.Sprintf("%-28s %s", m, desc))
+			} else {
+				display = append(display, m)
 			}
 		}
-		return readline.CONTINUE
-	}))
-
-	// Up arrow: move selection up in hints
-	editor.BindKey(keys.Up, readline.AnonymousCommand(func(ctx context.Context, b *readline.Buffer) readline.Result {
-		if len(hintMatches) == 0 {
-			return readline.CONTINUE
-		}
-		if hintSelected <= 0 {
-			hintSelected = len(hintMatches) - 1
-		} else {
-			hintSelected--
-		}
-		renderHints()
-		return readline.CONTINUE
-	}))
-
-	// Down arrow: move selection down in hints
-	editor.BindKey(keys.Down, readline.AnonymousCommand(func(ctx context.Context, b *readline.Buffer) readline.Result {
-		if len(hintMatches) == 0 {
-			return readline.CONTINUE
-		}
-		if hintSelected >= len(hintMatches)-1 {
-			hintSelected = 0
-		} else {
-			hintSelected++
-		}
-		renderHints()
+		box.Println(display, b.Out)
+		b.RepaintAll()
 		return readline.CONTINUE
 	}))
 }
 
 func ReadLine(prompt string) string {
-	clearHints()
 	editor.PromptWriter = func(w io.Writer) (int, error) {
 		return io.WriteString(w, prompt)
 	}
 	line, err := editor.ReadLine(context.Background())
-	clearHints()
 	if err != nil {
 		return ""
 	}
@@ -251,7 +186,6 @@ func PrintBlockDone() {
 		raw := streamBuf.String()
 		rendered := RenderMarkdown(raw)
 		if rendered != raw {
-			// clear raw output using precise display line count
 			lines := displayLines(raw, getTermWidth())
 			for i := 0; i < lines; i++ {
 				fmt.Print("\033[A\033[2K")
