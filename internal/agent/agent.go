@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/Lewis-404/axe/internal/llm"
 	"github.com/Lewis-404/axe/internal/tools"
@@ -162,12 +163,28 @@ func (a *Agent) Run(userInput string) error {
 			Content: resp.Content,
 		})
 
-		var toolResults []llm.ContentBlock
-		hasError := false
+		// collect tool_use blocks
+		var toolBlocks []llm.ContentBlock
 		for _, block := range resp.Content {
-			if block.Type != "tool_use" {
-				continue
+			if block.Type == "tool_use" {
+				toolBlocks = append(toolBlocks, block)
 			}
+		}
+
+		// readonly tools can run in parallel
+		readOnly := map[string]bool{"read_file": true, "list_directory": true, "search_files": true, "glob": true, "think": true}
+		allReadOnly := true
+		for _, b := range toolBlocks {
+			if !readOnly[b.Name] {
+				allReadOnly = false
+				break
+			}
+		}
+
+		toolResults := make([]llm.ContentBlock, len(toolBlocks))
+		hasError := false
+
+		execOne := func(i int, block llm.ContentBlock) {
 			if a.onTool != nil {
 				a.onTool(block.Name, fmt.Sprintf("%v", block.Input))
 			}
@@ -175,21 +192,28 @@ func (a *Agent) Run(userInput string) error {
 			result, err := a.registry.Execute(block.Name, inputBytes)
 			if err != nil {
 				hasError = true
-				toolResults = append(toolResults, llm.ContentBlock{
-					Type:    "tool_result",
-					ToolID:  block.ID,
-					Content: fmt.Sprintf("Error: %s", err),
-					IsError: true,
-				})
+				toolResults[i] = llm.ContentBlock{Type: "tool_result", ToolID: block.ID, Content: fmt.Sprintf("Error: %s", err), IsError: true}
 			} else {
 				if len(result) > 10000 {
 					result = result[:10000] + "\n... (truncated)"
 				}
-				toolResults = append(toolResults, llm.ContentBlock{
-					Type:    "tool_result",
-					ToolID:  block.ID,
-					Content: result,
-				})
+				toolResults[i] = llm.ContentBlock{Type: "tool_result", ToolID: block.ID, Content: result}
+			}
+		}
+
+		if allReadOnly && len(toolBlocks) > 1 {
+			var wg sync.WaitGroup
+			for i, block := range toolBlocks {
+				wg.Add(1)
+				go func(i int, b llm.ContentBlock) {
+					defer wg.Done()
+					execOne(i, b)
+				}(i, block)
+			}
+			wg.Wait()
+		} else {
+			for i, block := range toolBlocks {
+				execOne(i, block)
 			}
 		}
 
@@ -207,7 +231,7 @@ func (a *Agent) Run(userInput string) error {
 			return fmt.Errorf("3 consecutive tool errors, stopping to avoid loop")
 		}
 
-		if len(toolResults) == 0 {
+		if len(toolBlocks) == 0 {
 			a.totalIn += roundIn
 			a.totalOut += roundOut
 			if a.onUsage != nil {

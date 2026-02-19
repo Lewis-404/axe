@@ -29,6 +29,7 @@ Go 写的 CLI vibe coding agent。用户在终端用自然语言描述需求，a
 - `execute_command(command)` — 执行 shell 命令（需用户确认）
 - `search_files(pattern, path)` — grep 搜索文件内容
 - `glob(pattern, path)` — 按文件名模式搜索（如 **/*.go）
+- `bg_command(action, command, id)` — 后台进程管理（start/status/stop/logs）
 - `think(thought)` — 内部思考工具，用于任务规划
 
 ### 配置文件 ~/.axe/config.yaml
@@ -58,6 +59,7 @@ models:
 ### 交互命令
 - `/clear` — 清空对话上下文并清屏
 - `/compact [hint]` — 压缩对话上下文（可带提示指导压缩方向）
+- `/init` — 为当前项目自动生成 CLAUDE.md
 - `/list` — 查看最近对话记录（带编号）
 - `/resume` — 列出最近对话，选择并恢复（展示完整历史）
 - `/resume <编号>` — 恢复指定对话（编号从 `/list` 获取）
@@ -86,6 +88,7 @@ axe/
 │   │   ├── edit_file.go  # 含变更对比确认
 │   │   ├── list_dir.go
 │   │   ├── exec_cmd.go
+│   │   ├── bg_command.go # 后台进程管理
 │   │   ├── search.go
 │   │   ├── glob.go       # 文件名模式搜索
 │   │   └── think.go

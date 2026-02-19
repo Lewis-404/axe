@@ -47,7 +47,7 @@ func Run(args []string) {
 	}
 
 	if len(args) > 0 && args[0] == "version" {
-		fmt.Println("axe v0.1.0")
+		fmt.Println("axe v0.3.0")
 		return
 	}
 
@@ -242,7 +242,7 @@ func Run(args []string) {
 	}
 
 	// interactive mode
-	fmt.Println("🪓 Axe v0.1.0 — vibe coding agent")
+	fmt.Println("🪓 Axe v0.3.0 — vibe coding agent")
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -368,16 +368,31 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		} else {
 			ui.PrintTotalUsage(in, out)
 		}
+	case "/init":
+		dir, _ := os.Getwd()
+		target := filepath.Join(dir, "CLAUDE.md")
+		if _, err := os.Stat(target); err == nil {
+			fmt.Println("⚠️  CLAUDE.md 已存在，跳过生成")
+		} else {
+			content := context.GenerateCLAUDEMD(dir)
+			if err := os.WriteFile(target, []byte(content), 0644); err != nil {
+				ui.PrintError(err)
+			} else {
+				fmt.Println("✅ 已生成 CLAUDE.md，请根据项目实际情况编辑完善")
+			}
+		}
 	case "/help":
 		fmt.Println("可用命令:")
 		fmt.Println("  /clear          清空对话上下文")
+		fmt.Println("  /compact [hint]  压缩对话上下文")
+		fmt.Println("  /init           为当前项目生成 CLAUDE.md")
 		fmt.Println("  /list           查看最近对话记录")
 		fmt.Println("  /resume         选择并恢复对话")
 		fmt.Println("  /resume <编号>  恢复指定对话（编号从 /list 获取）")
 		fmt.Println("  /model          显示当前和可用模型")
 		fmt.Println("  /model <name>   切换模型")
 		fmt.Println("  /compact [hint]  压缩对话上下文")
-		fmt.Println("  /cost           显示累计 token 用量")
+		fmt.Println("  /cost           显示累计 token 用量和费用")
 		fmt.Println("  /exit           退出 Axe")
 		fmt.Println("  /help           显示此帮助")
 	default:

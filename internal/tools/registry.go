@@ -39,6 +39,7 @@ func NewRegistry(opts RegistryOpts) *Registry {
 	r.Register(&SearchFiles{})
 	r.Register(&Think{})
 	r.Register(&Glob{})
+	r.Register(&BgCommand{confirm: opts.Confirm})
 	return r
 }
 

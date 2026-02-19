@@ -23,10 +23,11 @@ type slashCmd struct {
 var slashCommands = []slashCmd{
 	{"/clear", "清空对话上下文并清屏"},
 	{"/compact", "压缩对话上下文（可加提示）"},
+	{"/init", "为当前项目生成 CLAUDE.md"},
 	{"/list", "查看最近对话记录"},
 	{"/resume", "恢复对话（可加编号）"},
 	{"/model", "查看/切换模型"},
-	{"/cost", "显示累计 token 用量"},
+	{"/cost", "显示累计 token 用量和费用"},
 	{"/help", "显示帮助"},
 	{"/exit", "退出 Axe"},
 }
@@ -130,18 +131,34 @@ func ConfirmEdit(path, oldText, newText string) bool {
 }
 
 var streamStarted bool
+var streamBuf strings.Builder
 
 func PrintTextDelta(text string) {
 	if !streamStarted {
-		fmt.Print("\n🪓 ")
+		fmt.Print("\n")
 		streamStarted = true
 	}
+	streamBuf.WriteString(text)
+	// still print raw for real-time feel
 	fmt.Print(text)
 }
 
 func PrintBlockDone() {
 	if streamStarted {
-		fmt.Println()
+		// clear the raw output and re-render with markdown
+		raw := streamBuf.String()
+		rendered := RenderMarkdown(raw)
+		if rendered != raw {
+			// move cursor up and clear the raw lines, then print rendered
+			lineCount := strings.Count(raw, "\n") + 1
+			for i := 0; i < lineCount; i++ {
+				fmt.Print("\033[A\033[2K")
+			}
+			fmt.Printf("\n🪓 %s\n", rendered)
+		} else {
+			fmt.Println()
+		}
+		streamBuf.Reset()
 		streamStarted = false
 	}
 }
