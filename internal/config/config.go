@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
+type ModelConfig struct {
 	Provider  string `yaml:"provider"`
 	APIKey    string `yaml:"api_key"`
 	BaseURL   string `yaml:"base_url"`
@@ -16,20 +16,12 @@ type Config struct {
 	MaxTokens int    `yaml:"max_tokens"`
 }
 
-func (c *Config) IsOpenAI() bool {
-	return c.Provider == "openai"
+func (m *ModelConfig) IsOpenAI() bool {
+	return m.Provider == "openai"
 }
 
-func (c *Config) SetModel(model string) {
-	c.Model = model
-}
-
-func DefaultConfig() *Config {
-	return &Config{
-		BaseURL:   "https://api.anthropic.com",
-		Model:     "claude-sonnet-4-20250514",
-		MaxTokens: 8192,
-	}
+type Config struct {
+	Models []ModelConfig `yaml:"models"`
 }
 
 func configDir() string {
@@ -42,39 +34,58 @@ func configPath() string {
 }
 
 func Load() (*Config, error) {
-	cfg := DefaultConfig()
+	cfg := &Config{}
 
 	data, err := os.ReadFile(configPath())
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("config not found, run 'axe init' first")
 		}
-	} else {
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("parse config: %w", err)
+		return nil, err
+	}
+
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	// env overrides: apply to matching provider entries
+	for i := range cfg.Models {
+		m := &cfg.Models[i]
+		if m.IsOpenAI() {
+			if key := os.Getenv("OPENAI_API_KEY"); key != "" && m.APIKey == "" {
+				m.APIKey = key
+			}
+			if url := os.Getenv("OPENAI_BASE_URL"); url != "" && m.BaseURL == "" {
+				m.BaseURL = url
+			}
+		} else {
+			if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" && m.APIKey == "" {
+				m.APIKey = key
+			}
+			if url := os.Getenv("ANTHROPIC_BASE_URL"); url != "" && m.BaseURL == "" {
+				m.BaseURL = url
+			}
+		}
+		// defaults
+		if m.MaxTokens == 0 {
+			m.MaxTokens = 8192
+		}
+		if m.Provider == "" {
+			m.Provider = "anthropic"
 		}
 	}
 
-	// env overrides
-	if cfg.IsOpenAI() {
-		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-			cfg.APIKey = key
+	// validate: at least one model with api_key
+	valid := 0
+	for _, m := range cfg.Models {
+		if m.APIKey != "" && m.Model != "" {
+			valid++
 		}
-		if url := os.Getenv("OPENAI_BASE_URL"); url != "" {
-			cfg.BaseURL = url
-		}
-	} else {
-		if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-			cfg.APIKey = key
-		}
-		if url := os.Getenv("ANTHROPIC_BASE_URL"); url != "" {
-			cfg.BaseURL = url
-		}
+	}
+	if valid == 0 {
+		return nil, fmt.Errorf("no valid model config found (need at least api_key + model)")
 	}
 
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("api_key not set in config or environment")
-	}
 	return cfg, nil
 }
 
@@ -89,12 +100,21 @@ func Init() error {
 		return fmt.Errorf("config already exists: %s", path)
 	}
 
-	cfg := DefaultConfig()
-	cfg.APIKey = "your-api-key-here"
+	template := `# Axe 配置文件
+# 至少配置一个模型，支持多个模型自动 fallback
+models:
+  - provider: anthropic          # anthropic 或 openai
+    api_key: "your-api-key"
+    base_url: "https://api.anthropic.com"
+    model: "claude-sonnet-4-20250514"
+    max_tokens: 8192
 
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0600)
+  # 备用模型（可选，第一个失败时自动切换）
+  # - provider: openai
+  #   api_key: "sk-xxx"
+  #   base_url: "https://api.openai.com"
+  #   model: "gpt-4o"
+  #   max_tokens: 8192
+`
+	return os.WriteFile(path, []byte(template), 0600)
 }

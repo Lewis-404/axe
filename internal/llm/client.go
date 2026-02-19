@@ -16,46 +16,101 @@ import (
 type Provider interface {
 	Send(system string, messages []Message) (*Response, error)
 	SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error)
+	ModelName() string
 }
 
-// Client wraps a Provider and is the public API used by the agent.
+// Client wraps multiple Providers with fallback support.
 type Client struct {
-	provider Provider
+	providers []Provider
+	activeIdx int
 }
 
-func NewClient(cfg *config.Config, tools []ToolDef) *Client {
-	var p Provider
-	if cfg.IsOpenAI() {
-		p = NewOpenAIClient(cfg, tools)
-	} else {
-		p = NewAnthropicClient(cfg, tools)
+func NewClient(models []config.ModelConfig, tools []ToolDef) *Client {
+	var providers []Provider
+	for i := range models {
+		m := &models[i]
+		if m.APIKey == "" || m.Model == "" {
+			continue
+		}
+		if m.IsOpenAI() {
+			providers = append(providers, NewOpenAIClient(m, tools))
+		} else {
+			providers = append(providers, NewAnthropicClient(m, tools))
+		}
 	}
-	return &Client{provider: p}
+	return &Client{providers: providers}
 }
 
 func (c *Client) Send(system string, messages []Message) (*Response, error) {
-	return c.provider.Send(system, messages)
+	var lastErr error
+	for i := 0; i < len(c.providers); i++ {
+		idx := (c.activeIdx + i) % len(c.providers)
+		resp, err := c.providers[idx].Send(system, messages)
+		if err == nil {
+			c.activeIdx = idx
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func (c *Client) SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error) {
-	return c.provider.SendStream(system, messages, cb)
+	var lastErr error
+	for i := 0; i < len(c.providers); i++ {
+		idx := (c.activeIdx + i) % len(c.providers)
+		resp, err := c.providers[idx].SendStream(system, messages, cb)
+		if err == nil {
+			c.activeIdx = idx
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func (c *Client) ModelName() string {
+	if len(c.providers) == 0 {
+		return "none"
+	}
+	return c.providers[c.activeIdx].ModelName()
+}
+
+func (c *Client) SwitchModel(name string) bool {
+	for i, p := range c.providers {
+		if p.ModelName() == name {
+			c.activeIdx = i
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Client) ListModels() []string {
+	var names []string
+	for _, p := range c.providers {
+		names = append(names, p.ModelName())
+	}
+	return names
 }
 
 // AnthropicClient implements Provider for the Anthropic API.
 type AnthropicClient struct {
-	cfg   *config.Config
+	model *config.ModelConfig
 	http  *http.Client
 	tools []ToolDef
 }
 
-func NewAnthropicClient(cfg *config.Config, tools []ToolDef) *AnthropicClient {
-	return &AnthropicClient{cfg: cfg, http: &http.Client{}, tools: tools}
+func NewAnthropicClient(m *config.ModelConfig, tools []ToolDef) *AnthropicClient {
+	return &AnthropicClient{model: m, http: &http.Client{}, tools: tools}
 }
+
+func (c *AnthropicClient) ModelName() string { return c.model.Model }
 
 func (c *AnthropicClient) Send(system string, messages []Message) (*Response, error) {
 	req := Request{
-		Model:     c.cfg.Model,
-		MaxTokens: c.cfg.MaxTokens,
+		Model:     c.model.Model,
+		MaxTokens: c.model.MaxTokens,
 		System:    system,
 		Messages:  messages,
 		Tools:     c.tools,
@@ -66,14 +121,14 @@ func (c *AnthropicClient) Send(system string, messages []Message) (*Response, er
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/messages"
+	url := strings.TrimRight(c.model.BaseURL, "/") + "/v1/messages"
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.cfg.APIKey)
+	httpReq.Header.Set("x-api-key", c.model.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := c.http.Do(httpReq)
@@ -108,8 +163,8 @@ func (c *AnthropicClient) SendStream(system string, messages []Message, cb Strea
 		Stream bool `json:"stream"`
 	}{
 		Request: Request{
-			Model:     c.cfg.Model,
-			MaxTokens: c.cfg.MaxTokens,
+			Model:     c.model.Model,
+			MaxTokens: c.model.MaxTokens,
 			System:    system,
 			Messages:  messages,
 			Tools:     c.tools,
@@ -122,14 +177,14 @@ func (c *AnthropicClient) SendStream(system string, messages []Message, cb Strea
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/messages"
+	url := strings.TrimRight(c.model.BaseURL, "/") + "/v1/messages"
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.cfg.APIKey)
+	httpReq.Header.Set("x-api-key", c.model.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := c.http.Do(httpReq)

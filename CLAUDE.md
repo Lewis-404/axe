@@ -31,11 +31,18 @@ Go 写的 CLI vibe coding agent。用户在终端用自然语言描述需求，a
 
 ### 配置文件 ~/.axe/config.yaml
 ```yaml
-provider: "anthropic"  # 或 "openai"
-api_key: "sk-xxx"
-base_url: "https://api.anthropic.com"  # 支持中转
-model: "claude-sonnet-4-20250514"
-max_tokens: 8192
+# 至少配置一个模型，支持多个模型自动 fallback
+models:
+  - provider: anthropic          # anthropic 或 openai
+    api_key: "sk-xxx"
+    base_url: "https://api.anthropic.com"
+    model: "claude-sonnet-4-20250514"
+    max_tokens: 8192
+  - provider: openai             # 备用模型
+    api_key: "sk-xxx"
+    base_url: "https://api.openai.com"
+    model: "gpt-4o"
+    max_tokens: 8192
 ```
 
 ### CLI 命令
@@ -48,7 +55,7 @@ max_tokens: 8192
 
 ### 交互命令
 - `/clear` — 清空对话上下文和 token 累计
-- `/model` — 查看当前模型
+- `/model` — 查看当前和可用模型
 - `/model <name>` — 运行时切换模型
 - `/cost` — 查看累计 token 用量
 - `/help` — 显示命令列表

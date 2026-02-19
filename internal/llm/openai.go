@@ -100,14 +100,16 @@ type oaiStreamChunk struct {
 // OpenAI client
 
 type OpenAIClient struct {
-	cfg   *config.Config
+	model *config.ModelConfig
 	http  *http.Client
 	tools []ToolDef
 }
 
-func NewOpenAIClient(cfg *config.Config, tools []ToolDef) *OpenAIClient {
-	return &OpenAIClient{cfg: cfg, http: &http.Client{}, tools: tools}
+func NewOpenAIClient(m *config.ModelConfig, tools []ToolDef) *OpenAIClient {
+	return &OpenAIClient{model: m, http: &http.Client{}, tools: tools}
 }
+
+func (c *OpenAIClient) ModelName() string { return c.model.Model }
 
 func (c *OpenAIClient) convertTools() []oaiTool {
 	if len(c.tools) == 0 {
@@ -178,13 +180,13 @@ func (c *OpenAIClient) convertMessages(system string, messages []Message) []oaiM
 }
 
 func (c *OpenAIClient) doRequest(body []byte) (*http.Response, error) {
-	url := strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/chat/completions"
+	url := strings.TrimRight(c.model.BaseURL, "/") + "/v1/chat/completions"
 	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	req.Header.Set("Authorization", "Bearer "+c.model.APIKey)
 	return c.http.Do(req)
 }
 
@@ -233,10 +235,10 @@ func convertStopReason(reason string) string {
 
 func (c *OpenAIClient) Send(system string, messages []Message) (*Response, error) {
 	reqBody := oaiRequest{
-		Model:     c.cfg.Model,
+		Model:     c.model.Model,
 		Messages:  c.convertMessages(system, messages),
 		Tools:     c.convertTools(),
-		MaxTokens: c.cfg.MaxTokens,
+		MaxTokens: c.model.MaxTokens,
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -266,10 +268,10 @@ func (c *OpenAIClient) Send(system string, messages []Message) (*Response, error
 
 func (c *OpenAIClient) SendStream(system string, messages []Message, cb StreamCallbacks) (*Response, error) {
 	reqBody := oaiRequest{
-		Model:     c.cfg.Model,
+		Model:     c.model.Model,
 		Messages:  c.convertMessages(system, messages),
 		Tools:     c.convertTools(),
-		MaxTokens: c.cfg.MaxTokens,
+		MaxTokens: c.model.MaxTokens,
 		Stream:    true,
 	}
 	body, err := json.Marshal(reqBody)

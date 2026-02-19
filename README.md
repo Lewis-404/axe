@@ -36,11 +36,20 @@ axe init
 编辑 `~/.axe/config.yaml`：
 
 ```yaml
-provider: "anthropic"  # 或 "openai"
-api_key: "your-api-key"
-base_url: "https://api.anthropic.com"  # 支持中转
-model: "claude-sonnet-4-20250514"
-max_tokens: 8192
+# 至少配置一个模型，支持多个模型自动 fallback
+models:
+  - provider: anthropic          # anthropic 或 openai
+    api_key: "your-api-key"
+    base_url: "https://api.anthropic.com"
+    model: "claude-sonnet-4-20250514"
+    max_tokens: 8192
+
+  # 备用模型（可选，第一个失败时自动切换）
+  # - provider: openai
+  #   api_key: "sk-xxx"
+  #   base_url: "https://api.openai.com"
+  #   model: "gpt-4o"
+  #   max_tokens: 8192
 ```
 
 也支持环境变量：
@@ -84,7 +93,7 @@ axe version
 | 命令 | 功能 |
 |------|------|
 | `/clear` | 清空对话上下文 |
-| `/model` | 查看当前模型 |
+| `/model` | 查看当前和可用模型 |
 | `/model <name>` | 切换模型 |
 | `/cost` | 查看累计 token 用量 |
 | `/help` | 显示命令列表 |
