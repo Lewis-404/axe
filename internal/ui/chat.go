@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/chzyer/readline"
 )
@@ -27,71 +25,43 @@ var slashCommands = []SlashCmd{
 }
 
 // slashHinter implements readline.Listener for real-time command hints.
-// Uses a timer to show hints AFTER readline finishes re-rendering the line.
 type slashHinter struct {
-	mu        sync.Mutex
 	hintLines int
-	timer     *time.Timer
 }
 
 func (h *slashHinter) OnChange(line []rune, pos int, key rune) ([]rune, int, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	// Clear previous hints
+	h.clearHints()
 
-	// Cancel any pending hint display
-	if h.timer != nil {
-		h.timer.Stop()
-		h.timer = nil
-	}
+	// line already reflects the current buffer state (character already added/removed)
+	s := string(line)
 
-	// Clear previous hints immediately
-	h.clearHintsLocked()
-
-	// Don't hint for Enter/Ctrl keys
-	if key == '\r' || key == '\n' || key == 0 {
-		return line, pos, false
-	}
-
-	// Simulate line after this keystroke
-	predicted := predictLine(line, pos, key)
-
-	if !strings.HasPrefix(predicted, "/") || len(predicted) < 2 || strings.Contains(predicted, " ") {
+	if !strings.HasPrefix(s, "/") || len(s) < 2 || strings.Contains(s, " ") {
 		return line, pos, false
 	}
 
 	var matches []SlashCmd
 	for _, cmd := range slashCommands {
-		if strings.HasPrefix(cmd.Name, predicted) {
+		if strings.HasPrefix(cmd.Name, s) {
 			matches = append(matches, cmd)
 		}
 	}
 
 	if len(matches) > 0 {
-		// Delay hint display to let readline finish re-rendering
-		m := make([]SlashCmd, len(matches))
-		copy(m, matches)
-		h.timer = time.AfterFunc(15*time.Millisecond, func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-			h.showHintsLocked(m)
-		})
+		var buf strings.Builder
+		buf.WriteString("\033[s") // save cursor
+		for _, m := range matches {
+			buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.Name, m.Desc))
+		}
+		buf.WriteString("\033[u") // restore cursor
+		os.Stdout.WriteString(buf.String())
+		h.hintLines = len(matches)
 	}
 
 	return line, pos, false
 }
 
-func (h *slashHinter) showHintsLocked(matches []SlashCmd) {
-	var buf strings.Builder
-	buf.WriteString("\033[s") // save cursor
-	for _, m := range matches {
-		buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.Name, m.Desc))
-	}
-	buf.WriteString("\033[u") // restore cursor
-	os.Stdout.WriteString(buf.String())
-	h.hintLines = len(matches)
-}
-
-func (h *slashHinter) clearHintsLocked() {
+func (h *slashHinter) clearHints() {
 	if h.hintLines == 0 {
 		return
 	}
@@ -103,38 +73,6 @@ func (h *slashHinter) clearHintsLocked() {
 	buf.WriteString("\033[u") // restore cursor
 	os.Stdout.WriteString(buf.String())
 	h.hintLines = 0
-}
-
-func (h *slashHinter) clearHints() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.timer != nil {
-		h.timer.Stop()
-		h.timer = nil
-	}
-	h.clearHintsLocked()
-}
-
-// predictLine simulates what the line will look like after the key is processed.
-func predictLine(line []rune, pos int, key rune) string {
-	switch {
-	case key == 127 || key == 8: // backspace
-		if pos > 0 {
-			result := make([]rune, 0, len(line))
-			result = append(result, line[:pos-1]...)
-			result = append(result, line[pos:]...)
-			return string(result)
-		}
-		return string(line)
-	case key >= 32: // printable character
-		result := make([]rune, 0, len(line)+1)
-		result = append(result, line[:pos]...)
-		result = append(result, key)
-		result = append(result, line[pos:]...)
-		return string(result)
-	default:
-		return string(line)
-	}
 }
 
 // ClearSlashHints clears any remaining hint lines (call before output).
