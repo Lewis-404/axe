@@ -39,21 +39,46 @@ func LoadSkills(dirs ...string) []Skill {
 			continue
 		}
 		for _, e := range entries {
-			if !e.IsDir() {
+			// follow symlinks
+			path := filepath.Join(dir, e.Name())
+			info, err := os.Stat(path)
+			if err != nil || !info.IsDir() {
 				continue
 			}
-			path := filepath.Join(dir, e.Name(), "skill.yaml")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
+			// try skill.yaml first, then SKILL.md with front matter
 			var s Skill
-			if yaml.Unmarshal(data, &s) == nil && s.Name != "" {
-				all = append(all, s)
+			if data, err := os.ReadFile(filepath.Join(path, "skill.yaml")); err == nil {
+				if yaml.Unmarshal(data, &s) != nil || s.Name == "" {
+					continue
+				}
+			} else if data, err := os.ReadFile(filepath.Join(path, "SKILL.md")); err == nil {
+				s = parseSkillMD(data)
+				if s.Name == "" {
+					s.Name = e.Name()
+				}
+			} else {
+				continue
 			}
+			all = append(all, s)
 		}
 	}
 	return all
+}
+
+// parseSkillMD extracts YAML front matter from SKILL.md
+func parseSkillMD(data []byte) Skill {
+	content := string(data)
+	if !strings.HasPrefix(content, "---\n") {
+		return Skill{}
+	}
+	end := strings.Index(content[4:], "\n---")
+	if end < 0 {
+		return Skill{}
+	}
+	var s Skill
+	yaml.Unmarshal([]byte(content[4:4+end]), &s)
+	// don't load full body as system prompt — too large for 100+ skills
+	return s
 }
 
 // SkillTool wraps a skill's command-based tool definition as a tools.Tool.
@@ -103,13 +128,20 @@ func RegisterTools(skills []Skill, registry *tools.Registry, confirm func(string
 	}
 }
 
-// SystemPromptExtra returns combined system prompt additions from all skills.
+// SystemPromptExtra returns a compact skill catalog for the system prompt.
 func SystemPromptExtra(skills []Skill) string {
-	var parts []string
+	if len(skills) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## Available Skills\n")
+	sb.WriteString("Use /skills to list all. Skills provide domain knowledge on demand.\n\n")
 	for _, s := range skills {
-		if s.SystemPrompt != "" {
-			parts = append(parts, s.SystemPrompt)
+		if s.Description != "" {
+			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", s.Name, s.Description))
+		} else {
+			sb.WriteString(fmt.Sprintf("- **%s**\n", s.Name))
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	return sb.String()
 }
