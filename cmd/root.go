@@ -334,9 +334,10 @@ func Run(args []string) {
 			os.Exit(1)
 		}
 		ag.SetMessages(msgs)
+		ag.RefreshSystem(fmt.Sprintf(systemPrompt, context.Collect(dir)))
 		savePath = p
 		args = args[1:]
-		fmt.Println("📂 Resumed previous conversation")
+		fmt.Println("🔄 已恢复对话并刷新项目上下文")
 		ui.PrintHistory(msgs)
 	} else {
 		savePath = history.NewFilePath()
@@ -471,8 +472,10 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 				return
 			}
 			ag.SetMessages(msgs)
+			dir, _ := os.Getwd()
+			ag.RefreshSystem(fmt.Sprintf(systemPrompt, context.Collect(dir)))
 			*savePath = p
-			fmt.Printf("📂 已恢复对话 [%d]（%d 条消息）\n", idx, len(msgs))
+			fmt.Printf("🔄 已恢复对话并刷新项目上下文 [%d]（%d 条消息）\n", idx, len(msgs))
 			ui.PrintHistory(msgs)
 		} else {
 			lines, err := history.ListRecentIndexed(10)
@@ -503,8 +506,10 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 				return
 			}
 			ag.SetMessages(msgs)
+			dir, _ := os.Getwd()
+			ag.RefreshSystem(fmt.Sprintf(systemPrompt, context.Collect(dir)))
 			*savePath = p
-			fmt.Printf("📂 已恢复对话 [%d]（%d 条消息）\n", idx, len(msgs))
+			fmt.Printf("🔄 已恢复对话并刷新项目上下文 [%d]（%d 条消息）\n", idx, len(msgs))
 			ui.PrintHistory(msgs)
 		}
 	case "/compact":

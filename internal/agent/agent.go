@@ -44,6 +44,7 @@ func (a *Agent) SetBudget(max float64, costFn func(int, int) float64) {
 	a.budgetMax = max
 	a.costFn = costFn
 }
+func (a *Agent) RefreshSystem(s string)                           { a.system = s }
 func (a *Agent) Messages() []llm.Message                         { return a.messages }
 func (a *Agent) SetMessages(msgs []llm.Message)                  { a.messages = msgs }
 func (a *Agent) TotalUsage() (int, int)                          { return a.totalIn, a.totalOut }
