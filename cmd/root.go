@@ -192,6 +192,45 @@ func Run(args []string) {
 	}
 	registry := tools.NewRegistry(registryOpts)
 
+	// batch confirm callback for same-type tool groups
+	if !printMode && !autoMode {
+		registry.SetBatchConfirm(func(toolName string, items []tools.BatchConfirmItem) bool {
+			// check if already always-allowed
+			if allowed, found := perms.Check(toolName, "*"); found && allowed {
+				return true
+			}
+			emoji := map[string]string{"write_file": "📝", "edit_file": "✏️", "execute_command": "⚡", "bg_command": "⚡"}
+			icon := emoji[toolName]
+			if icon == "" {
+				icon = "🔧"
+			}
+			fmt.Printf("\n%s 即将批量执行 %d 个 %s:\n", icon, len(items), toolName)
+			for _, item := range items {
+				var p struct {
+					Path    string `json:"path"`
+					Command string `json:"command"`
+				}
+				json.Unmarshal(item.Input, &p)
+				label := p.Path
+				if label == "" {
+					label = p.Command
+				}
+				fmt.Printf("  - %s\n", label)
+			}
+			answer := ui.ReadLine("Allow all? [y/N/A(lways)] ")
+			switch strings.ToLower(answer) {
+			case "a", "always":
+				perms.AddAllow(toolName, "*")
+				fmt.Printf("  ✅ 已记住: 始终允许 %s\n", toolName)
+				return true
+			case "y":
+				return true
+			default:
+				return false
+			}
+		})
+	}
+
 	// start MCP servers and register their tools
 	var mcpClients []*mcp.Client
 	for name, srv := range cfg.MCPServers {
