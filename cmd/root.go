@@ -657,6 +657,39 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 			}
 		}
 	case "/init":
+	case "/git":
+		dir, _ := os.Getwd()
+		if !git.IsRepo(dir) {
+			fmt.Println("⚠️ 当前目录不是 git 仓库")
+		} else {
+			sub := "status"
+			if len(parts) > 1 {
+				sub = parts[1]
+			}
+			var args []string
+			switch sub {
+			case "status", "s":
+				args = []string{"status", "--short"}
+			case "log", "l":
+				args = []string{"log", "--oneline", "-10"}
+			case "branch", "b":
+				args = []string{"branch", "-a"}
+			case "stash":
+				args = []string{"stash", "list"}
+			default:
+				args = parts[1:]
+			}
+			cmd := exec.Command("git", args...)
+			cmd.Dir = dir
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
+		}
+	case "/context":
+		in, out := ag.TotalUsage()
+		msgs := ag.Messages()
+		fmt.Printf("📊 上下文: %d 条消息, ↑%s ↓%s\n", len(msgs), fmtTokens(in), fmtTokens(out))
+
 		dir, _ := os.Getwd()
 		target := filepath.Join(dir, "CLAUDE.md")
 		if _, err := os.Stat(target); err == nil {
@@ -685,6 +718,8 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /diff           查看未提交的变更")
 		fmt.Println("  /retry          重试上一轮对话")
 		fmt.Println("  /export [file]  导出对话为 Markdown")
+		fmt.Println("  /git [cmd]      快捷 git (status/log/branch)")
+		fmt.Println("  /context        查看上下文 token 用量")
 		fmt.Println("  /budget <$>     设置费用上限 (off 关闭)")
 		fmt.Println("  /cost           显示累计 token 用量和费用")
 		fmt.Println("  /exit           退出 Axe")

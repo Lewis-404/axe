@@ -34,6 +34,8 @@ var slashCommands = []slashCmd{
 	{"/diff", "查看未提交的变更"},
 	{"/retry", "重试上一轮对话"},
 	{"/export", "导出对话为 Markdown"},
+	{"/git", "快捷 git 操作 (status/log/branch)"},
+	{"/context", "查看上下文 token 用量"},
 	{"/budget", "设置费用上限"},
 	{"/cost", "显示累计 token 用量和费用"},
 	{"/help", "显示帮助"},
@@ -92,7 +94,7 @@ func init() {
 	}
 
 	// Tab completion for slash commands
-	editor.BindKey(keys.CtrlI, &completion.CmdCompletionOrList2{
+	editor.BindKey(keys.CtrlI, &completion.CmdCompletion2{
 		Postfix: " ",
 		Candidates: func(field []string) (forComp []string, forList []string) {
 			if len(field) == 1 && strings.HasPrefix(field[0], "/") {
@@ -101,10 +103,6 @@ func init() {
 					if strings.HasPrefix(cmd.name, field[0]) {
 						matches = append(matches, cmd.name)
 					}
-				}
-				// only show list when there's partial input to filter
-				if field[0] == "/" {
-					return matches, nil
 				}
 				return matches, matches
 			}

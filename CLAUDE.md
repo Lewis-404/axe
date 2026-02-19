@@ -75,6 +75,8 @@ models:
 - `/diff` — 查看未提交的变更
 - `/retry` — 重试上一轮对话
 - `/export [file]` — 导出对话为 Markdown
+- `/git [cmd]` — 快捷 git 操作（status/log/branch/stash）
+- `/context` — 查看上下文 token 用量
 - `/budget <$>` — 设置费用上限（off 关闭）
 - `/cost` — 查看累计 token 用量和费用
 - `/project:<name>` — 执行自定义项目命令（从 .axe/commands/*.md 加载）
