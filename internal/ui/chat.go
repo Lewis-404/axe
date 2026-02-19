@@ -37,6 +37,7 @@ var slashCommands = []slashCmd{
 	{"/export", "导出对话为 Markdown"},
 	{"/git", "快捷 git 操作 (status/log/branch)"},
 	{"/context", "查看上下文 token 用量"},
+	{"/skills", "查看已加载的技能"},
 	{"/budget", "设置费用上限"},
 	{"/cost", "显示累计 token 用量和费用"},
 	{"/skills", "列出已加载的技能"},

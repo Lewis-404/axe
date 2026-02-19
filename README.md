@@ -25,6 +25,8 @@ Go 写的 CLI vibe coding agent。用自然语言描述需求，axe 自动读取
 - 🔍 **对话搜索** — `/search` 搜索历史对话内容
 - ⌨️ **中文友好** — 完整的 CJK 输入支持
 - 🤖 **API 自动重试** — 限流/服务器错误时自动退避重试
+- 🧩 **Skills 技能系统** — YAML 定义技能包，扩展 system prompt 和工具
+- ✅ **批量确认** — 连续同类工具调用时合并为一次确认
 
 ## 安装
 
@@ -132,6 +134,7 @@ axe version
 | `/export [file]` | 导出对话为 Markdown |
 | `/git [cmd]` | 快捷 git 操作 |
 | `/context` | 查看上下文 token 用量 |
+| `/skills` | 查看已加载的技能 |
 | `/budget <$>` | 设置费用上限 |
 | `/cost` | 查看累计 token 用量和费用 |
 | `/project:<name>` | 执行自定义项目命令 |
