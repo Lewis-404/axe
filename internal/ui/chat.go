@@ -101,6 +101,10 @@ func init() {
 						matches = append(matches, cmd.name)
 					}
 				}
+				// only show list when there's partial input to filter
+				if field[0] == "/" {
+					return matches, nil
+				}
 				return matches, matches
 			}
 			return nil, nil
