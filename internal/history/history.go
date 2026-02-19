@@ -175,3 +175,71 @@ func NewFilePath() string {
 	now := time.Now().Format("2006-01-02_150405")
 	return filepath.Join(dir, now+".json")
 }
+
+// LoadByIndex loads a conversation by its index (1-based) from recent list.
+func LoadByIndex(idx int) (string, []llm.Message, error) {
+	files, err := listFiles()
+	if err != nil {
+		return "", nil, err
+	}
+	if len(files) == 0 {
+		return "", nil, fmt.Errorf("no history found")
+	}
+	if idx < 1 || idx > len(files) {
+		return "", nil, fmt.Errorf("invalid index %d (1-%d)", idx, len(files))
+	}
+	path := files[idx-1]
+	msgs, err := loadFile(path)
+	return path, msgs, err
+}
+
+// ListRecentIndexed returns recent conversations with 1-based index.
+func ListRecentIndexed(n int) ([]string, error) {
+	files, err := listFiles()
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return []string{"No history found."}, nil
+	}
+
+	start := 0
+	if len(files) > n {
+		start = len(files) - n
+	}
+
+	var lines []string
+	for i, f := range files[start:] {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var rec Record
+		if json.Unmarshal(data, &rec) != nil {
+			continue
+		}
+
+		summary := "(empty)"
+		for _, m := range rec.Messages {
+			if m.Role == llm.RoleUser {
+				for _, b := range m.Content {
+					if b.Type == "text" && b.Text != "" {
+						r := []rune(b.Text)
+						if len(r) > 50 {
+							summary = string(r[:50]) + "..."
+						} else {
+							summary = b.Text
+						}
+						goto found
+					}
+				}
+			}
+		}
+	found:
+		idx := start + i + 1 // 1-based global index
+		name := filepath.Base(f)
+		ts := name[:len(name)-len(".json")]
+		lines = append(lines, fmt.Sprintf("  [%d] %s  %s", idx, ts, summary))
+	}
+	return lines, nil
+}
