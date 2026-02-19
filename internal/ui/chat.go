@@ -11,6 +11,7 @@ import (
 	"github.com/nyaosorg/go-readline-ny"
 	"github.com/nyaosorg/go-readline-ny/completion"
 	"github.com/nyaosorg/go-readline-ny/keys"
+	"golang.org/x/term"
 )
 
 var editor *readline.Editor
@@ -143,25 +144,45 @@ func ConfirmEdit(path, oldText, newText string) bool {
 var streamStarted bool
 var streamBuf strings.Builder
 
+func getTermWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return 80
+	}
+	return w
+}
+
+// displayLines calculates actual terminal lines considering wrapping.
+func displayLines(text string, width int) int {
+	lines := 0
+	for _, line := range strings.Split(text, "\n") {
+		r := []rune(line)
+		if len(r) == 0 {
+			lines++
+		} else {
+			lines += (len(r) + width - 1) / width
+		}
+	}
+	return lines
+}
+
 func PrintTextDelta(text string) {
 	if !streamStarted {
 		fmt.Print("\n")
 		streamStarted = true
 	}
 	streamBuf.WriteString(text)
-	// still print raw for real-time feel
 	fmt.Print(text)
 }
 
 func PrintBlockDone() {
 	if streamStarted {
-		// clear the raw output and re-render with markdown
 		raw := streamBuf.String()
 		rendered := RenderMarkdown(raw)
 		if rendered != raw {
-			// move cursor up and clear the raw lines, then print rendered
-			lineCount := strings.Count(raw, "\n") + 1
-			for i := 0; i < lineCount; i++ {
+			// clear raw output using precise display line count
+			lines := displayLines(raw, getTermWidth())
+			for i := 0; i < lines; i++ {
 				fmt.Print("\033[A\033[2K")
 			}
 			fmt.Printf("\n🪓 %s\n", rendered)
