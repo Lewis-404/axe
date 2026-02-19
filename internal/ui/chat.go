@@ -48,7 +48,7 @@ func clearHints() {
 	var buf strings.Builder
 	buf.WriteString("\033[s") // save cursor
 	for i := 0; i < lastHintLines; i++ {
-		buf.WriteString("\n\033[2K") // move down + clear line
+		buf.WriteString("\033[B\033[2K") // move down + clear line
 	}
 	buf.WriteString("\033[u") // restore cursor
 	os.Stdout.WriteString(buf.String())
