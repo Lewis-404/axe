@@ -7,7 +7,7 @@ Go 写的 CLI vibe coding agent。用户在终端用自然语言描述需求，a
 - Go 1.25
 - Module: github.com/Lewis-404/axe
 - LLM: Anthropic Claude API + OpenAI 兼容接口（支持中转、自定义 base URL）
-- 终端输入: github.com/chzyer/readline（支持 CJK 多字节字符）
+- 终端输入: github.com/nyaosorg/go-readline-ny（支持 CJK 多字节字符）
 - 配置: ~/.axe/config.yaml
 
 ## 功能
@@ -19,7 +19,7 @@ Go 写的 CLI vibe coding agent。用户在终端用自然语言描述需求，a
 4. LLM 返回 tool calls（读文件、写文件、执行命令、搜索等）
 5. axe 执行 tool calls（文件修改需用户确认），将结果返回 LLM
 6. 循环直到任务完成
-7. 自动保存对话历史，自动 git commit
+7. 自动保存对话历史（按项目维度），自动 git commit
 
 ### Tool 定义
 - `read_file(path)` — 读取文件内容
@@ -28,6 +28,8 @@ Go 写的 CLI vibe coding agent。用户在终端用自然语言描述需求，a
 - `list_directory(path)` — 列出目录结构
 - `execute_command(command)` — 执行 shell 命令（需用户确认）
 - `search_files(pattern, path)` — grep 搜索文件内容
+- `glob(pattern, path)` — 按文件名模式搜索（如 **/*.go）
+- `think(thought)` — 内部思考工具，用于任务规划
 
 ### 配置文件 ~/.axe/config.yaml
 ```yaml
@@ -55,12 +57,13 @@ models:
 
 ### 交互命令
 - `/clear` — 清空对话上下文并清屏
+- `/compact [hint]` — 压缩对话上下文（可带提示指导压缩方向）
 - `/list` — 查看最近对话记录（带编号）
 - `/resume` — 列出最近对话，选择并恢复（展示完整历史）
 - `/resume <编号>` — 恢复指定对话（编号从 `/list` 获取）
 - `/model` — 查看当前和可用模型
 - `/model <name>` — 运行时切换模型
-- `/cost` — 查看累计 token 用量
+- `/cost` — 查看累计 token 用量和费用
 - `/help` — 显示命令列表
 
 ## 项目结构
@@ -70,7 +73,7 @@ axe/
 ├── cmd/                  # CLI 命令定义
 │   └── root.go
 ├── internal/
-│   ├── agent/            # Agent 核心循环（prompt → tool call → execute → loop）
+│   ├── agent/            # Agent 核心循环 + 上下文自动压缩
 │   │   └── agent.go
 │   ├── llm/              # LLM API 客户端
 │   │   ├── client.go     # Provider 接口 + Anthropic 实现
@@ -83,13 +86,19 @@ axe/
 │   │   ├── edit_file.go  # 含变更对比确认
 │   │   ├── list_dir.go
 │   │   ├── exec_cmd.go
-│   │   └── search.go
+│   │   ├── search.go
+│   │   ├── glob.go       # 文件名模式搜索
+│   │   └── think.go
 │   ├── context/          # 项目上下文收集（CLAUDE.md、.axeignore、智能检测）
 │   │   └── collector.go
 │   ├── config/           # 配置管理
 │   │   └── config.go
-│   ├── history/          # 对话历史持久化
+│   ├── history/          # 对话历史持久化（按项目维度存储）
 │   │   └── history.go
+│   ├── permissions/      # 权限记忆系统
+│   │   └── permissions.go
+│   ├── pricing/          # 费用估算
+│   │   └── pricing.go
 │   ├── git/              # 自动 git commit
 │   │   └── git.go
 │   └── ui/               # 终端 UI（readline + streaming 输出）
@@ -107,8 +116,9 @@ axe/
 - 先跑通再优化
 
 ## 安全
-- execute_command 默认需要用户确认（y/n）
+- execute_command 默认需要用户确认（y/n/always）
 - write_file 覆盖已有文件需确认（显示行数变化）
 - edit_file 替换内容需确认（显示变更对比）
+- 权限记忆存储在 ~/.axe/permissions.yaml，支持 always allow
 - 不自动执行 rm、sudo 等危险命令
 - API key 不硬编码，从配置文件或环境变量读取

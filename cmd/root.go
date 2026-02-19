@@ -15,6 +15,8 @@ import (
 	"github.com/Lewis-404/axe/internal/git"
 	"github.com/Lewis-404/axe/internal/history"
 	"github.com/Lewis-404/axe/internal/llm"
+	"github.com/Lewis-404/axe/internal/permissions"
+	"github.com/Lewis-404/axe/internal/pricing"
 	"github.com/Lewis-404/axe/internal/tools"
 	"github.com/Lewis-404/axe/internal/ui"
 )
@@ -70,13 +72,75 @@ func Run(args []string) {
 	}
 
 	dir, _ := os.Getwd()
+	history.SetProjectDir(dir)
 	ctx := context.Collect(dir)
 	sys := fmt.Sprintf(systemPrompt, ctx)
 
+	perms := permissions.Load()
+
 	registry := tools.NewRegistry(tools.RegistryOpts{
-		Confirm:          ui.Confirm,
-		ConfirmOverwrite: ui.ConfirmOverwrite,
-		ConfirmEdit:      ui.ConfirmEdit,
+		Confirm: func(cmd string) bool {
+			if allowed, found := perms.Check("execute_command", cmd); found {
+				if allowed {
+					fmt.Printf("\n⚡ Execute: %s \033[90m(auto-allowed)\033[0m\n", cmd)
+				}
+				return allowed
+			}
+			fmt.Printf("\n⚡ Execute: %s\n", cmd)
+			answer := ui.ReadLine("Allow? [y/N/A(lways)] ")
+			switch strings.ToLower(answer) {
+			case "a", "always":
+				// extract command prefix (first word)
+				prefix := strings.Fields(cmd)[0]
+				perms.AddAllow("execute_command", prefix)
+				fmt.Printf("  ✅ 已记住: 始终允许 %s 命令\n", prefix)
+				return true
+			case "y":
+				return true
+			default:
+				return false
+			}
+		},
+		ConfirmOverwrite: func(path string, oldLines, newLines int) bool {
+			if allowed, found := perms.Check("write_file", path); found {
+				if allowed {
+					fmt.Printf("\n📝 覆盖 %s (原 %d 行 → 新 %d 行) \033[90m(auto-allowed)\033[0m\n", path, oldLines, newLines)
+				}
+				return allowed
+			}
+			fmt.Printf("\n📝 覆盖 %s (原 %d 行 → 新 %d 行)\n", path, oldLines, newLines)
+			answer := ui.ReadLine("Allow? [y/N/A(lways)] ")
+			switch strings.ToLower(answer) {
+			case "a", "always":
+				perms.AddAllow("write_file", "*")
+				fmt.Println("  ✅ 已记住: 始终允许文件写入")
+				return true
+			case "y":
+				return true
+			default:
+				return false
+			}
+		},
+		ConfirmEdit: func(path, oldText, newText string) bool {
+			if allowed, found := perms.Check("edit_file", path); found {
+				if allowed {
+					fmt.Printf("\n✏️ 编辑 %s \033[90m(auto-allowed)\033[0m\n", path)
+				}
+				return allowed
+			}
+			fmt.Printf("\n✏️ 编辑 %s:\n  - %s\n  + %s\n", path, truncateStr(oldText, 30), truncateStr(newText, 30))
+			answer := ui.ReadLine("Allow? [y/N/A(lways)] ")
+			switch strings.ToLower(answer) {
+			case "a", "always":
+				perms.AddAllow("edit_file", "*")
+				fmt.Println("  ✅ 已记住: 始终允许文件编辑")
+				return true
+			case "y":
+				return true
+			default:
+				return false
+			}
+		},
 	})
 
 	// Auto-verify: run build check after file modifications
@@ -115,7 +179,21 @@ func Run(args []string) {
 	ag.OnTextDelta(ui.PrintTextDelta)
 	ag.OnBlockDone(ui.PrintBlockDone)
 	ag.OnTool(ui.PrintTool)
-	ag.OnUsage(ui.PrintUsage)
+	ag.OnUsage(func(roundIn, roundOut, totalIn, totalOut int) {
+		model := client.ModelName()
+		roundCost := pricing.Cost(model, roundIn, roundOut)
+		totalCost := pricing.Cost(model, totalIn, totalOut)
+		if totalCost > 0 {
+			fmt.Printf("📊 本轮: ↑%s ↓%s ($%.4f) | 累计: ↑%s ↓%s ($%.4f)\n",
+				fmtTokens(roundIn), fmtTokens(roundOut), roundCost,
+				fmtTokens(totalIn), fmtTokens(totalOut), totalCost)
+		} else {
+			ui.PrintUsage(roundIn, roundOut, totalIn, totalOut)
+		}
+	})
+	ag.OnCompact(func(before, after int) {
+		fmt.Printf("🗜️ 上下文已压缩: ~%dk → ~%dk tokens\n", before/1000, after/1000)
+	})
 
 	// --resume: restore latest conversation
 	var savePath string
@@ -272,9 +350,24 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 			fmt.Printf("📂 已恢复对话 [%d]（%d 条消息）\n", idx, len(msgs))
 			ui.PrintHistory(msgs)
 		}
+	case "/compact":
+		hint := ""
+		if len(parts) > 1 {
+			hint = strings.Join(parts[1:], " ")
+		}
+		if err := ag.Compact(hint); err != nil {
+			ui.PrintError(err)
+		} else {
+			fmt.Println("🗜️ 对话上下文已压缩")
+		}
 	case "/cost":
 		in, out := ag.TotalUsage()
-		ui.PrintTotalUsage(in, out)
+		cost := pricing.Cost(client.ModelName(), in, out)
+		if cost > 0 {
+			fmt.Printf("📊 累计: ↑%s ↓%s | 💰 $%.4f\n", fmtTokens(in), fmtTokens(out), cost)
+		} else {
+			ui.PrintTotalUsage(in, out)
+		}
 	case "/help":
 		fmt.Println("可用命令:")
 		fmt.Println("  /clear          清空对话上下文")
@@ -283,10 +376,26 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /resume <编号>  恢复指定对话（编号从 /list 获取）")
 		fmt.Println("  /model          显示当前和可用模型")
 		fmt.Println("  /model <name>   切换模型")
+		fmt.Println("  /compact [hint]  压缩对话上下文")
 		fmt.Println("  /cost           显示累计 token 用量")
 		fmt.Println("  /exit           退出 Axe")
 		fmt.Println("  /help           显示此帮助")
 	default:
 		fmt.Printf("未知命令: %s（输入 /help 查看可用命令）\n", cmd)
 	}
+}
+
+func truncateStr(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "..."
+}
+
+func fmtTokens(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }

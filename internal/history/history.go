@@ -1,65 +1,78 @@
 package history
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Lewis-404/axe/internal/llm"
 )
 
 type Record struct {
-	CreatedAt string       `json:"created_at"`
-	UpdatedAt string       `json:"updated_at"`
-	Messages  []llm.Message `json:"messages"`
+	CreatedAt  string        `json:"created_at"`
+	UpdatedAt  string        `json:"updated_at"`
+	ProjectDir string        `json:"project_dir,omitempty"`
+	Messages   []llm.Message `json:"messages"`
+}
+
+var projectDir string // set by caller via SetProjectDir
+
+func SetProjectDir(dir string) { projectDir = dir }
+
+func projectHash(dir string) string {
+	h := sha256.Sum256([]byte(dir))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+func projectSlug(dir string) string {
+	name := filepath.Base(dir)
+	// sanitize: keep only alphanumeric, dash, underscore
+	var sb strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			sb.WriteRune(r)
+		}
+	}
+	slug := sb.String()
+	if slug == "" {
+		slug = "default"
+	}
+	return slug + "-" + projectHash(dir)[:8]
 }
 
 func historyDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".axe", "history")
+	base := filepath.Join(home, ".axe", "history")
+	if projectDir == "" {
+		return base
+	}
+	return filepath.Join(base, projectSlug(projectDir))
 }
 
-func Save(messages []llm.Message) error {
+// ensureDir creates history dir and writes a .project meta file
+func ensureDir() error {
 	dir := historyDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create history dir: %w", err)
+		return err
 	}
-
-	now := time.Now().Format("2006-01-02_150405")
-	path := filepath.Join(dir, now+".json")
-
-	// If file exists (resuming), update it; otherwise create new
-	rec := &Record{
-		CreatedAt: now,
-		UpdatedAt: now,
-		Messages:  messages,
+	if projectDir != "" {
+		meta := filepath.Join(dir, ".project")
+		os.WriteFile(meta, []byte(projectDir), 0600)
 	}
-
-	// Try to read existing to preserve CreatedAt
-	if data, err := os.ReadFile(path); err == nil {
-		var existing Record
-		if json.Unmarshal(data, &existing) == nil {
-			rec.CreatedAt = existing.CreatedAt
-		}
-	}
-
-	data, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal history: %w", err)
-	}
-	return os.WriteFile(path, data, 0600)
+	return nil
 }
 
 func SaveTo(path string, messages []llm.Message) error {
 	rec := &Record{
-		UpdatedAt: time.Now().Format("2006-01-02_150405"),
-		Messages:  messages,
+		UpdatedAt:  time.Now().Format("2006-01-02_150405"),
+		ProjectDir: projectDir,
+		Messages:   messages,
 	}
-
-	// Preserve CreatedAt from existing file
 	if data, err := os.ReadFile(path); err == nil {
 		var existing Record
 		if json.Unmarshal(data, &existing) == nil {
@@ -68,7 +81,6 @@ func SaveTo(path string, messages []llm.Message) error {
 	} else {
 		rec.CreatedAt = rec.UpdatedAt
 	}
-
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal history: %w", err)
@@ -85,7 +97,6 @@ func listFiles() ([]string, error) {
 		}
 		return nil, fmt.Errorf("read history dir: %w", err)
 	}
-
 	var files []string
 	for _, e := range entries {
 		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
@@ -104,57 +115,9 @@ func LoadLatest() (string, []llm.Message, error) {
 	if len(files) == 0 {
 		return "", nil, fmt.Errorf("no history found")
 	}
-
 	path := files[len(files)-1]
 	msgs, err := loadFile(path)
 	return path, msgs, err
-}
-
-func ListRecent(n int) ([]string, error) {
-	files, err := listFiles()
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return []string{"No history found."}, nil
-	}
-
-	start := 0
-	if len(files) > n {
-		start = len(files) - n
-	}
-
-	var lines []string
-	for _, f := range files[start:] {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		var rec Record
-		if json.Unmarshal(data, &rec) != nil {
-			continue
-		}
-
-		summary := "(empty)"
-		for _, m := range rec.Messages {
-			if m.Role == llm.RoleUser {
-				for _, b := range m.Content {
-					if b.Type == "text" && b.Text != "" {
-						summary = b.Text
-						if len(summary) > 60 {
-							summary = summary[:60] + "..."
-						}
-						goto found
-					}
-				}
-			}
-		}
-	found:
-		name := filepath.Base(f)
-		ts := name[:len(name)-len(".json")]
-		lines = append(lines, fmt.Sprintf("  %s  %s", ts, summary))
-	}
-	return lines, nil
 }
 
 func loadFile(path string) ([]llm.Message, error) {
@@ -170,13 +133,11 @@ func loadFile(path string) ([]llm.Message, error) {
 }
 
 func NewFilePath() string {
-	dir := historyDir()
-	os.MkdirAll(dir, 0700)
+	ensureDir()
 	now := time.Now().Format("2006-01-02_150405")
-	return filepath.Join(dir, now+".json")
+	return filepath.Join(historyDir(), now+".json")
 }
 
-// LoadByIndex loads a conversation by its index (1-based) from recent list.
 func LoadByIndex(idx int) (string, []llm.Message, error) {
 	files, err := listFiles()
 	if err != nil {
@@ -193,7 +154,6 @@ func LoadByIndex(idx int) (string, []llm.Message, error) {
 	return path, msgs, err
 }
 
-// ListRecentIndexed returns recent conversations with 1-based index.
 func ListRecentIndexed(n int) ([]string, error) {
 	files, err := listFiles()
 	if err != nil {
@@ -202,12 +162,10 @@ func ListRecentIndexed(n int) ([]string, error) {
 	if len(files) == 0 {
 		return []string{"No history found."}, nil
 	}
-
 	start := 0
 	if len(files) > n {
 		start = len(files) - n
 	}
-
 	var lines []string
 	for i, f := range files[start:] {
 		data, err := os.ReadFile(f)
@@ -218,7 +176,6 @@ func ListRecentIndexed(n int) ([]string, error) {
 		if json.Unmarshal(data, &rec) != nil {
 			continue
 		}
-
 		summary := "(empty)"
 		for _, m := range rec.Messages {
 			if m.Role == llm.RoleUser {
@@ -236,7 +193,7 @@ func ListRecentIndexed(n int) ([]string, error) {
 			}
 		}
 	found:
-		idx := start + i + 1 // 1-based global index
+		idx := start + i + 1
 		name := filepath.Base(f)
 		ts := name[:len(name)-len(".json")]
 		lines = append(lines, fmt.Sprintf("  [%d] %s  %s", idx, ts, summary))
