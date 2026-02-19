@@ -57,7 +57,7 @@ func clearHints() {
 
 func showHints(line string) {
 	clearHints()
-	if !strings.HasPrefix(line, "/") || len(line) < 2 || strings.Contains(line, " ") {
+	if !strings.HasPrefix(line, "/") || strings.Contains(line, " ") {
 		return
 	}
 	var matches []slashCmd
