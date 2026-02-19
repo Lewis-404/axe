@@ -256,6 +256,13 @@ func Run(args []string) {
 	home, _ := os.UserHomeDir()
 	loadedSkills := skills.LoadSkills(filepath.Join(home, ".axe", "skills"), filepath.Join(dir, ".axe", "skills"))
 	pkgSkills = loadedSkills
+	// register skills as slash commands
+	var skillNames, skillDescs []string
+	for _, s := range loadedSkills {
+		skillNames = append(skillNames, s.Name)
+		skillDescs = append(skillDescs, s.Description)
+	}
+	ui.RegisterSkillCommands(skillNames, skillDescs)
 	if catalog := skills.SkillCatalog(loadedSkills); catalog != "" {
 		sys += "\n\n" + catalog
 	}
@@ -458,6 +465,30 @@ func Run(args []string) {
 				}
 				if !found {
 					fmt.Printf("❌ 未找到项目命令: %s\n", cmdName)
+				}
+				continue
+			}
+			// check if it's a skill command
+			cmdName := strings.TrimPrefix(strings.Fields(input)[0], "/")
+			if s := skills.FindSkill(pkgSkills, cmdName); s != nil {
+				content, err := skills.ReadSkillContent(*s)
+				if err != nil {
+					ui.PrintError(err)
+				} else {
+					ag.InjectContext(fmt.Sprintf("[Skill: %s]\n%s", s.Name, content))
+					fmt.Printf("🧩 已激活技能: %s\n", s.Name)
+					// if there's text after the skill name, run it with the skill context
+					rest := strings.TrimSpace(strings.TrimPrefix(input, "/"+cmdName))
+					if rest == "" {
+						rest = strings.TrimSpace(strings.TrimPrefix(input, "/"+s.Name))
+					}
+					if rest != "" {
+						if err := ag.Run(rest); err != nil {
+							ui.PrintError(err)
+						}
+						autoCommit(rest)
+						autoSave()
+					}
 				}
 				continue
 			}

@@ -9,7 +9,6 @@ import (
 
 	"github.com/Lewis-404/axe/internal/llm"
 	"github.com/nyaosorg/go-readline-ny"
-	"github.com/nyaosorg/go-readline-ny/completion"
 	"github.com/nyaosorg/go-readline-ny/keys"
 	"golang.org/x/term"
 )
@@ -46,6 +45,19 @@ var slashCommands = []slashCmd{
 }
 
 var lastHintLines int
+var hintSelected int // -1 = none selected
+var hintMatches []slashCmd
+
+// RegisterSkillCommands adds skills as slash commands
+func RegisterSkillCommands(names []string, descs []string) {
+	for i, name := range names {
+		desc := ""
+		if i < len(descs) {
+			desc = descs[i]
+		}
+		slashCommands = append(slashCommands, slashCmd{"/" + name, desc})
+	}
+}
 
 func clearHints() {
 	if lastHintLines == 0 {
@@ -59,6 +71,8 @@ func clearHints() {
 	buf.WriteString("\033[u") // restore cursor
 	os.Stdout.WriteString(buf.String())
 	lastHintLines = 0
+	hintMatches = nil
+	hintSelected = -1
 }
 
 func showHints(line string) {
@@ -75,14 +89,33 @@ func showHints(line string) {
 	if len(matches) == 0 {
 		return
 	}
+	hintMatches = matches
+	renderHints()
+}
+
+func renderHints() {
+	// clear previous hints first
+	if lastHintLines > 0 {
+		var clr strings.Builder
+		clr.WriteString("\033[s")
+		for i := 0; i < lastHintLines; i++ {
+			clr.WriteString("\033[B\033[2K")
+		}
+		clr.WriteString("\033[u")
+		os.Stdout.WriteString(clr.String())
+	}
 	var buf strings.Builder
 	buf.WriteString("\033[s") // save cursor
-	for _, m := range matches {
-		buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.name, m.desc))
+	for i, m := range hintMatches {
+		if i == hintSelected {
+			buf.WriteString(fmt.Sprintf("\n  \033[7m\033[36m%s\033[0m  \033[7m\033[90m%s\033[0m", m.name, m.desc))
+		} else {
+			buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.name, m.desc))
+		}
 	}
 	buf.WriteString("\033[u") // restore cursor
 	os.Stdout.WriteString(buf.String())
-	lastHintLines = len(matches)
+	lastHintLines = len(hintMatches)
 }
 
 func init() {
@@ -96,22 +129,58 @@ func init() {
 		},
 	}
 
-	// Tab completion for slash commands
-	editor.BindKey(keys.CtrlI, &completion.CmdCompletion2{
-		Postfix: " ",
-		Candidates: func(field []string) (forComp []string, forList []string) {
-			if len(field) == 1 && strings.HasPrefix(field[0], "/") {
-				var matches []string
-				for _, cmd := range slashCommands {
-					if strings.HasPrefix(cmd.name, field[0]) {
-						matches = append(matches, cmd.name)
-					}
+	// Tab completion: if hint selected, fill it; otherwise normal completion
+	editor.BindKey(keys.CtrlI, readline.AnonymousCommand(func(ctx context.Context, b *readline.Buffer) readline.Result {
+		if hintSelected >= 0 && hintSelected < len(hintMatches) {
+			selected := hintMatches[hintSelected].name + " "
+			b.ReplaceAndRepaint(0, selected)
+			clearHints()
+			return readline.CONTINUE
+		}
+		// default: complete first match
+		line := b.String()
+		if strings.HasPrefix(line, "/") {
+			var matches []string
+			for _, cmd := range slashCommands {
+				if strings.HasPrefix(cmd.name, line) {
+					matches = append(matches, cmd.name)
 				}
-				return matches, matches
 			}
-			return nil, nil
-		},
-	})
+			if len(matches) == 1 {
+				b.ReplaceAndRepaint(0, matches[0] + " ")
+				clearHints()
+			}
+		}
+		return readline.CONTINUE
+	}))
+
+	// Up arrow: move selection up in hints
+	editor.BindKey(keys.Up, readline.AnonymousCommand(func(ctx context.Context, b *readline.Buffer) readline.Result {
+		if len(hintMatches) == 0 {
+			return readline.CONTINUE
+		}
+		if hintSelected <= 0 {
+			hintSelected = len(hintMatches) - 1
+		} else {
+			hintSelected--
+		}
+		renderHints()
+		return readline.CONTINUE
+	}))
+
+	// Down arrow: move selection down in hints
+	editor.BindKey(keys.Down, readline.AnonymousCommand(func(ctx context.Context, b *readline.Buffer) readline.Result {
+		if len(hintMatches) == 0 {
+			return readline.CONTINUE
+		}
+		if hintSelected >= len(hintMatches)-1 {
+			hintSelected = 0
+		} else {
+			hintSelected++
+		}
+		renderHints()
+		return readline.CONTINUE
+	}))
 }
 
 func ReadLine(prompt string) string {
