@@ -142,9 +142,11 @@ func (a *Agent) Run(userInput string) error {
 	var content []llm.ContentBlock
 	if len(imageBlocks) > 0 {
 		content = append(content, imageBlocks...)
-		if textOnly != "" {
-			content = append(content, llm.ContentBlock{Type: "text", Text: textOnly})
+		if textOnly == "" {
+			textOnly = "请描述这张图片"
 		}
+		content = append(content, llm.ContentBlock{Type: "text", Text: textOnly})
+		fmt.Printf("🖼️ 已识别 %d 张图片\n", len(imageBlocks))
 	} else {
 		content = []llm.ContentBlock{{Type: "text", Text: userInput}}
 	}

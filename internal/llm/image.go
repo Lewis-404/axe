@@ -15,6 +15,15 @@ var imageExts = map[string]string{
 	".webp": "image/webp",
 }
 
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
 // ParseImageBlocks scans input for image file paths, returns text + image content blocks
 func ParseImageBlocks(input string) ([]ContentBlock, string) {
 	words := strings.Fields(input)
@@ -28,7 +37,8 @@ func ParseImageBlocks(input string) ([]ContentBlock, string) {
 			textParts = append(textParts, w)
 			continue
 		}
-		data, err := os.ReadFile(w)
+		path := expandHome(w)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			textParts = append(textParts, w)
 			continue
