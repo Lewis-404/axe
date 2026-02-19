@@ -38,6 +38,7 @@ var slashCommands = []slashCmd{
 	{"/git", "快捷 git 操作 (status/log/branch)"},
 	{"/context", "查看上下文 token 用量"},
 	{"/skills", "查看已加载的技能"},
+	{"/skill", "激活技能 (/skill <name>)"},
 	{"/budget", "设置费用上限"},
 	{"/cost", "显示累计 token 用量和费用"},
 	{"/help", "显示帮助"},

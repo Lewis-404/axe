@@ -256,9 +256,8 @@ func Run(args []string) {
 	home, _ := os.UserHomeDir()
 	loadedSkills := skills.LoadSkills(filepath.Join(home, ".axe", "skills"), filepath.Join(dir, ".axe", "skills"))
 	pkgSkills = loadedSkills
-	skills.RegisterTools(loadedSkills, registry, registryOpts.Confirm)
-	if extra := skills.SystemPromptExtra(loadedSkills); extra != "" {
-		sys += "\n\n" + extra
+	if catalog := skills.SkillCatalog(loadedSkills); catalog != "" {
+		sys += "\n\n" + catalog
 	}
 
 	// Auto-verify: run build check after file modifications
@@ -762,19 +761,29 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		if len(pkgSkills) == 0 {
 			fmt.Println("📦 没有已加载的技能")
 		} else {
-			fmt.Println("📦 已加载技能:")
+			fmt.Printf("📦 已加载 %d 个技能 (使用 /skill <name> 激活):\n", len(pkgSkills))
 			for _, s := range pkgSkills {
-				fmt.Printf("  • %s — %s", s.Name, s.Description)
-				if len(s.Tools) > 0 {
-					var names []string
-					for _, t := range s.Tools {
-						names = append(names, t.Name)
-					}
-					fmt.Printf(" [tools: %s]", strings.Join(names, ", "))
-				}
-				fmt.Println()
+				fmt.Printf("  • %s — %s\n", s.Name, s.Description)
 			}
 		}
+	case "/skill":
+		if len(parts) < 2 {
+			fmt.Println("用法: /skill <name>")
+			return
+		}
+		s := skills.FindSkill(pkgSkills, parts[1])
+		if s == nil {
+			fmt.Printf("❌ 未找到技能: %s\n", parts[1])
+			return
+		}
+		content, err := skills.ReadSkillContent(*s)
+		if err != nil {
+			ui.PrintError(err)
+			return
+		}
+		// inject skill content as a user message for the LLM
+		ag.InjectContext(fmt.Sprintf("[Skill: %s]\n%s", s.Name, content))
+		fmt.Printf("🧩 已激活技能: %s\n", s.Name)
 	case "/help":
 		fmt.Println("可用命令:")
 		fmt.Println("  /clear          清空对话上下文")

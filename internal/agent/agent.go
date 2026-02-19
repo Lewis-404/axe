@@ -45,6 +45,16 @@ func (a *Agent) SetBudget(max float64, costFn func(int, int) float64) {
 	a.costFn = costFn
 }
 func (a *Agent) RefreshSystem(s string)                           { a.system = s }
+func (a *Agent) InjectContext(text string) {
+	a.messages = append(a.messages, llm.Message{
+		Role:    llm.RoleUser,
+		Content: []llm.ContentBlock{{Type: "text", Text: text}},
+	})
+	a.messages = append(a.messages, llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: []llm.ContentBlock{{Type: "text", Text: "已加载技能，我会按照其中的指导来工作。"}},
+	})
+}
 func (a *Agent) Messages() []llm.Message                         { return a.messages }
 func (a *Agent) SetMessages(msgs []llm.Message)                  { a.messages = msgs }
 func (a *Agent) TotalUsage() (int, int)                          { return a.totalIn, a.totalOut }
