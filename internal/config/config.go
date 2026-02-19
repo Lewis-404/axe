@@ -20,17 +20,24 @@ func (m *ModelConfig) IsOpenAI() bool {
 	return m.Provider == "openai"
 }
 
+type MCPServer struct {
+	Command string   `yaml:"command"`
+	Args    []string `yaml:"args,omitempty"`
+}
+
 type Config struct {
-	Models []ModelConfig `yaml:"models"`
+	Models     []ModelConfig        `yaml:"models"`
+	MCPServers map[string]MCPServer `yaml:"mcp_servers,omitempty"`
 }
 
 // ProjectConfig holds per-project overrides in .axe/settings.yaml
 type ProjectConfig struct {
-	Models       []ModelConfig `yaml:"models,omitempty"`
-	MaxTokens    int           `yaml:"max_tokens,omitempty"`
-	AutoCommit   *bool         `yaml:"auto_commit,omitempty"`
-	AutoVerify   *bool         `yaml:"auto_verify,omitempty"`
-	IgnoreFiles  []string      `yaml:"ignore_files,omitempty"`
+	Models      []ModelConfig        `yaml:"models,omitempty"`
+	MaxTokens   int                  `yaml:"max_tokens,omitempty"`
+	AutoCommit  *bool                `yaml:"auto_commit,omitempty"`
+	AutoVerify  *bool                `yaml:"auto_verify,omitempty"`
+	IgnoreFiles []string             `yaml:"ignore_files,omitempty"`
+	MCPServers  map[string]MCPServer `yaml:"mcp_servers,omitempty"`
 }
 
 func configDir() string {
@@ -148,5 +155,13 @@ func (c *Config) Merge(pc *ProjectConfig) {
 	}
 	if len(pc.Models) > 0 {
 		c.Models = append(pc.Models, c.Models...)
+	}
+	if len(pc.MCPServers) > 0 {
+		if c.MCPServers == nil {
+			c.MCPServers = make(map[string]MCPServer)
+		}
+		for k, v := range pc.MCPServers {
+			c.MCPServers[k] = v
+		}
 	}
 }

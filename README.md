@@ -113,6 +113,7 @@ axe version
 | `/resume <编号>` | 恢复指定对话（编号从 `/list` 获取） |
 | `/model` | 查看当前和可用模型 |
 | `/model <name>` | 切换模型 |
+| `/fork` | 从当前对话创建分支 |
 | `/cost` | 查看累计 token 用量和费用 |
 | `/project:<name>` | 执行自定义项目命令 |
 | `/help` | 显示命令列表 |
@@ -199,6 +200,23 @@ cat error.log | axe "分析错误原因"
 # 生成文档
 axe --print "为 main.go 生成 godoc 注释" > doc.go
 ```
+
+### MCP 协议支持
+
+axe 支持 [Model Context Protocol](https://modelcontextprotocol.io/)，可连接外部 MCP 工具服务器扩展能力：
+
+```yaml
+# ~/.axe/config.yaml 或 .axe/settings.yaml
+mcp_servers:
+  filesystem:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+  github:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+```
+
+MCP server 提供的工具会自动注册，LLM 可以直接调用。
 
 ## License
 

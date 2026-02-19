@@ -18,6 +18,7 @@ import (
 	"github.com/Lewis-404/axe/internal/git"
 	"github.com/Lewis-404/axe/internal/history"
 	"github.com/Lewis-404/axe/internal/llm"
+	"github.com/Lewis-404/axe/internal/mcp"
 	"github.com/Lewis-404/axe/internal/permissions"
 	"github.com/Lewis-404/axe/internal/pricing"
 	"github.com/Lewis-404/axe/internal/tools"
@@ -50,7 +51,7 @@ func Run(args []string) {
 	}
 
 	if len(args) > 0 && args[0] == "version" {
-		fmt.Println("axe v0.4.0")
+		fmt.Println("axe v0.5.0")
 		return
 	}
 
@@ -167,7 +168,8 @@ func Run(args []string) {
 				}
 				return allowed
 			}
-			fmt.Printf("\n✏️ 编辑 %s:\n  - %s\n  + %s\n", path, truncateStr(oldText, 30), truncateStr(newText, 30))
+			fmt.Printf("\n✏️ 编辑 %s:\n", path)
+			ui.PrintDiff(path, oldText, newText)
 			answer := ui.ReadLine("Allow? [y/N/A(lways)] ")
 			switch strings.ToLower(answer) {
 			case "a", "always":
@@ -183,6 +185,26 @@ func Run(args []string) {
 		}
 	}
 	registry := tools.NewRegistry(registryOpts)
+
+	// start MCP servers and register their tools
+	var mcpClients []*mcp.Client
+	for name, srv := range cfg.MCPServers {
+		mc, err := mcp.NewClient(srv.Command, srv.Args...)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ MCP server %q failed: %s\n", name, err)
+			continue
+		}
+		mcpClients = append(mcpClients, mc)
+		for _, t := range mc.Tools() {
+			t := t
+			registry.Register(&t)
+		}
+	}
+	defer func() {
+		for _, mc := range mcpClients {
+			mc.Close()
+		}
+	}()
 
 	// Auto-verify: run build check after file modifications
 	registry.SetPostExecHook(func(name string, input json.RawMessage, result string) string {
@@ -298,7 +320,7 @@ func Run(args []string) {
 	pkgCustomCmds = customCmds
 
 	// interactive mode
-	fmt.Println("🪓 Axe v0.4.0 — vibe coding agent")
+	fmt.Println("🪓 Axe v0.5.0 — vibe coding agent")
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -447,6 +469,18 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		} else {
 			ui.PrintTotalUsage(in, out)
 		}
+	case "/fork":
+		newPath := history.NewFilePath()
+		if msgs := ag.Messages(); len(msgs) > 0 {
+			if err := history.SaveTo(newPath, msgs); err != nil {
+				ui.PrintError(err)
+			} else {
+				*savePath = newPath
+				fmt.Printf("🔀 对话已分支，新路径: %s\n", filepath.Base(newPath))
+			}
+		} else {
+			fmt.Println("⚠️ 当前没有对话内容")
+		}
 	case "/init":
 		dir, _ := os.Getwd()
 		target := filepath.Join(dir, "CLAUDE.md")
@@ -464,6 +498,7 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("可用命令:")
 		fmt.Println("  /clear          清空对话上下文")
 		fmt.Println("  /compact [hint]  压缩对话上下文")
+		fmt.Println("  /fork           从当前对话创建分支")
 		fmt.Println("  /init           为当前项目生成 CLAUDE.md")
 		fmt.Println("  /list           查看最近对话记录")
 		fmt.Println("  /resume         选择并恢复对话")

@@ -23,6 +23,7 @@ type slashCmd struct {
 var slashCommands = []slashCmd{
 	{"/clear", "清空对话上下文并清屏"},
 	{"/compact", "压缩对话上下文（可加提示）"},
+	{"/fork", "从当前对话创建分支"},
 	{"/init", "为当前项目生成 CLAUDE.md"},
 	{"/list", "查看最近对话记录"},
 	{"/resume", "恢复对话（可加编号）"},

@@ -67,6 +67,7 @@ models:
 - `/resume <编号>` — 恢复指定对话（编号从 `/list` 获取）
 - `/model` — 查看当前和可用模型
 - `/model <name>` — 运行时切换模型
+- `/fork` — 从当前对话创建分支
 - `/cost` — 查看累计 token 用量和费用
 - `/project:<name>` — 执行自定义项目命令（从 .axe/commands/*.md 加载）
 - `/help` — 显示命令列表
@@ -75,6 +76,18 @@ models:
 1. 全局配置：`~/.axe/config.yaml`
 2. 项目配置：`.axe/settings.yaml`（覆盖全局配置中的模型等设置）
 3. 自定义命令：`.axe/commands/*.md`（文件名即命令名，内容作为 prompt）
+
+### MCP 服务器配置
+```yaml
+# ~/.axe/config.yaml 或 .axe/settings.yaml
+mcp_servers:
+  filesystem:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+  github:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+```
 
 ## 项目结构
 ```
@@ -108,6 +121,9 @@ axe/
 │   │   └── config.go
 │   ├── history/          # 对话历史持久化（按项目维度存储）
 │   │   └── history.go
+│   ├── mcp/              # MCP 协议客户端
+│   │   ├── client.go
+│   │   └── tool.go
 │   ├── permissions/      # 权限记忆系统
 │   │   └── permissions.go
 │   ├── pricing/          # 费用估算
