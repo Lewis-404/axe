@@ -221,27 +221,76 @@ func Run(args []string) {
 		if json.Unmarshal(input, &params) != nil || params.Path == "" {
 			return ""
 		}
-		if filepath.Ext(params.Path) != ".go" {
-			return ""
-		}
-		// Find the module root (directory containing go.mod)
-		buildDir := filepath.Dir(params.Path)
-		for d := buildDir; ; d = filepath.Dir(d) {
-			if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
-				buildDir = d
-				break
+		ext := filepath.Ext(params.Path)
+		fileDir := filepath.Dir(params.Path)
+
+		switch ext {
+		case ".go":
+			// find go.mod root
+			buildDir := fileDir
+			for d := buildDir; ; d = filepath.Dir(d) {
+				if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
+					buildDir = d
+					break
+				}
+				if d == filepath.Dir(d) {
+					break
+				}
 			}
-			if d == filepath.Dir(d) {
-				break
+			cmd := exec.Command("go", "build", "./...")
+			cmd.Dir = buildDir
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Sprintf("[Auto-verify] go build FAILED:\n%s", string(out))
 			}
+			return "[Auto-verify] go build OK"
+		case ".py":
+			cmd := exec.Command("python3", "-m", "py_compile", params.Path)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Sprintf("[Auto-verify] python compile FAILED:\n%s", string(out))
+			}
+			return "[Auto-verify] python syntax OK"
+		case ".rs":
+			// find Cargo.toml root
+			buildDir := fileDir
+			for d := buildDir; ; d = filepath.Dir(d) {
+				if _, err := os.Stat(filepath.Join(d, "Cargo.toml")); err == nil {
+					buildDir = d
+					break
+				}
+				if d == filepath.Dir(d) {
+					break
+				}
+			}
+			cmd := exec.Command("cargo", "check", "--quiet")
+			cmd.Dir = buildDir
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Sprintf("[Auto-verify] cargo check FAILED:\n%s", string(out))
+			}
+			return "[Auto-verify] cargo check OK"
+		case ".ts", ".tsx":
+			// find tsconfig root
+			buildDir := fileDir
+			for d := buildDir; ; d = filepath.Dir(d) {
+				if _, err := os.Stat(filepath.Join(d, "tsconfig.json")); err == nil {
+					buildDir = d
+					break
+				}
+				if d == filepath.Dir(d) {
+					break
+				}
+			}
+			cmd := exec.Command("npx", "tsc", "--noEmit")
+			cmd.Dir = buildDir
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Sprintf("[Auto-verify] tsc FAILED:\n%s", string(out))
+			}
+			return "[Auto-verify] tsc OK"
 		}
-		cmd := exec.Command("go", "build", "./...")
-		cmd.Dir = buildDir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Sprintf("[Auto-verify] go build FAILED:\n%s", string(out))
-		}
-		return "[Auto-verify] go build OK"
+		return ""
 	})
 	client := llm.NewClient(cfg.Models, registry.Definitions())
 	ag := agent.New(client, registry, sys)
@@ -577,6 +626,36 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 				ui.PrintError(err)
 			}
 		}
+	case "/export":
+		msgs := ag.Messages()
+		if len(msgs) == 0 {
+			fmt.Println("⚠️ 当前没有对话内容")
+		} else {
+			var sb strings.Builder
+			sb.WriteString("# Axe 对话导出\n\n")
+			for _, m := range msgs {
+				for _, b := range m.Content {
+					if b.Type == "text" && b.Text != "" {
+						if m.Role == llm.RoleUser {
+							sb.WriteString("## 🧑‍💻 User\n\n")
+						} else {
+							sb.WriteString("## 🪓 Axe\n\n")
+						}
+						sb.WriteString(b.Text)
+						sb.WriteString("\n\n")
+					}
+				}
+			}
+			outPath := "axe-export.md"
+			if len(parts) > 1 {
+				outPath = parts[1]
+			}
+			if err := os.WriteFile(outPath, []byte(sb.String()), 0644); err != nil {
+				ui.PrintError(err)
+			} else {
+				fmt.Printf("📄 已导出到 %s\n", outPath)
+			}
+		}
 	case "/init":
 		dir, _ := os.Getwd()
 		target := filepath.Join(dir, "CLAUDE.md")
@@ -605,6 +684,7 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /undo           撤销上一次 git commit")
 		fmt.Println("  /diff           查看未提交的变更")
 		fmt.Println("  /retry          重试上一轮对话")
+		fmt.Println("  /export [file]  导出对话为 Markdown")
 		fmt.Println("  /budget <$>     设置费用上限 (off 关闭)")
 		fmt.Println("  /cost           显示累计 token 用量和费用")
 		fmt.Println("  /exit           退出 Axe")

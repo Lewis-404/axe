@@ -137,6 +137,8 @@ func (a *Agent) autoCompact() {
 const maxIterations = 40
 
 func (a *Agent) Run(userInput string) error {
+	// expand @file references
+	userInput = llm.ExpandAtFiles(userInput)
 	// parse image paths from input
 	imageBlocks, textOnly := llm.ParseImageBlocks(userInput)
 	var content []llm.ContentBlock
