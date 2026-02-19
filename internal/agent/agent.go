@@ -235,12 +235,44 @@ func (a *Agent) Run(userInput string) error {
 		toolResults := make([]llm.ContentBlock, len(toolBlocks))
 		hasError := false
 
+		// batch confirm: group same-type confirmable tools
+		batchApproved := map[string]bool{} // toolName -> approved
+		if !allReadOnly {
+			groups := map[string][]int{} // toolName -> indices
+			for i, b := range toolBlocks {
+				if a.registry.NeedsConfirm(b.Name) {
+					groups[b.Name] = append(groups[b.Name], i)
+				}
+			}
+			for name, indices := range groups {
+				if len(indices) < 2 {
+					continue
+				}
+				var items []tools.BatchConfirmItem
+				for _, idx := range indices {
+					inputBytes, _ := json.Marshal(toolBlocks[idx].Input)
+					items = append(items, tools.BatchConfirmItem{Name: name, Input: inputBytes})
+				}
+				batchApproved[name] = a.registry.BatchConfirm(name, items)
+			}
+		}
+
 		execOne := func(i int, block llm.ContentBlock) {
+			// batch rejected: skip execution
+			if approved, ok := batchApproved[block.Name]; ok && !approved {
+				toolResults[i] = llm.ContentBlock{Type: "tool_result", ToolID: block.ID, Content: "用户取消（批量拒绝）"}
+				return
+			}
 			if a.onTool != nil {
 				a.onTool(block.Name, fmt.Sprintf("%v", block.Input))
 			}
+			// batch approved: skip individual confirm
+			if approved, ok := batchApproved[block.Name]; ok && approved {
+				a.registry.SetSkipConfirm(block.Name, true)
+			}
 			inputBytes, _ := json.Marshal(block.Input)
 			result, err := a.registry.Execute(block.Name, inputBytes)
+			a.registry.SetSkipConfirm(block.Name, false)
 			if err != nil {
 				hasError = true
 				toolResults[i] = llm.ContentBlock{Type: "tool_result", ToolID: block.ID, Content: fmt.Sprintf("Error: %s", err), IsError: true}
