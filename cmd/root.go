@@ -21,6 +21,7 @@ import (
 	"github.com/Lewis-404/axe/internal/mcp"
 	"github.com/Lewis-404/axe/internal/permissions"
 	"github.com/Lewis-404/axe/internal/pricing"
+	"github.com/Lewis-404/axe/internal/skills"
 	"github.com/Lewis-404/axe/internal/tools"
 	"github.com/Lewis-404/axe/internal/ui"
 )
@@ -251,6 +252,15 @@ func Run(args []string) {
 		}
 	}()
 
+	// load skills
+	home, _ := os.UserHomeDir()
+	loadedSkills := skills.LoadSkills(filepath.Join(home, ".axe", "skills"), filepath.Join(dir, ".axe", "skills"))
+	pkgSkills = loadedSkills
+	skills.RegisterTools(loadedSkills, registry, registryOpts.Confirm)
+	if extra := skills.SystemPromptExtra(loadedSkills); extra != "" {
+		sys += "\n\n" + extra
+	}
+
 	// Auto-verify: run build check after file modifications
 	registry.SetPostExecHook(func(name string, input json.RawMessage, result string) string {
 		if name != "write_file" && name != "edit_file" {
@@ -416,7 +426,7 @@ func Run(args []string) {
 
 	// interactive mode
 	fmt.Printf("🪓 Axe %s — vibe coding agent\n", Version)
-	fmt.Printf("   📁 %s | 🤖 %s | 🔧 %d tools\n", filepath.Base(dir), client.ModelName(), len(registry.Definitions()))
+	fmt.Printf("   📁 %s | 🤖 %s | 🔧 %d tools | 📦 %d skills\n", filepath.Base(dir), client.ModelName(), len(registry.Definitions()), len(pkgSkills))
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -465,6 +475,7 @@ func Run(args []string) {
 }
 
 var pkgCustomCmds []commands.CustomCommand
+var pkgSkills []skills.Skill
 
 func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, savePath *string) {
 	parts := strings.Fields(input)
@@ -747,6 +758,23 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 				fmt.Println("✅ 已生成 CLAUDE.md，请根据项目实际情况编辑完善")
 			}
 		}
+	case "/skills":
+		if len(pkgSkills) == 0 {
+			fmt.Println("📦 没有已加载的技能")
+		} else {
+			fmt.Println("📦 已加载技能:")
+			for _, s := range pkgSkills {
+				fmt.Printf("  • %s — %s", s.Name, s.Description)
+				if len(s.Tools) > 0 {
+					var names []string
+					for _, t := range s.Tools {
+						names = append(names, t.Name)
+					}
+					fmt.Printf(" [tools: %s]", strings.Join(names, ", "))
+				}
+				fmt.Println()
+			}
+		}
 	case "/help":
 		fmt.Println("可用命令:")
 		fmt.Println("  /clear          清空对话上下文")
@@ -767,6 +795,7 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /context        查看上下文 token 用量")
 		fmt.Println("  /budget <$>     设置费用上限 (off 关闭)")
 		fmt.Println("  /cost           显示累计 token 用量和费用")
+		fmt.Println("  /skills         列出已加载的技能")
 		fmt.Println("  /exit           退出 Axe")
 		fmt.Println("  /help           显示此帮助")
 		fmt.Println("  💡 支持图片: 在 prompt 中直接写图片路径")
