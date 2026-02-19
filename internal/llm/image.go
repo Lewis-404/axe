@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -24,23 +25,27 @@ func expandHome(path string) string {
 	return path
 }
 
-// ParseImageBlocks scans input for image file paths, returns text + image content blocks
-func ParseImageBlocks(input string) ([]ContentBlock, string) {
-	words := strings.Fields(input)
-	var blocks []ContentBlock
-	var textParts []string
+// imagePathRe matches file paths ending with image extensions
+var imagePathRe = regexp.MustCompile(`(?:~?/)?[\w./_-]+\.(?:png|jpg|jpeg|gif|webp)\b`)
 
-	for _, w := range words {
-		ext := strings.ToLower(filepath.Ext(w))
-		mime, ok := imageExts[ext]
-		if !ok {
-			textParts = append(textParts, w)
-			continue
-		}
-		path := expandHome(w)
+// ParseImageBlocks extracts image file paths from input, returns image blocks + remaining text
+func ParseImageBlocks(input string) ([]ContentBlock, string) {
+	matches := imagePathRe.FindAllString(input, -1)
+	if len(matches) == 0 {
+		return nil, input
+	}
+
+	var blocks []ContentBlock
+	remaining := input
+	for _, m := range matches {
+		path := expandHome(m)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			textParts = append(textParts, w)
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(m))
+		mime, ok := imageExts[ext]
+		if !ok {
 			continue
 		}
 		blocks = append(blocks, ContentBlock{
@@ -51,8 +56,9 @@ func ParseImageBlocks(input string) ([]ContentBlock, string) {
 				Data:      base64.StdEncoding.EncodeToString(data),
 			},
 		})
+		remaining = strings.Replace(remaining, m, "", 1)
 	}
 
-	text := strings.Join(textParts, " ")
-	return blocks, text
+	remaining = strings.TrimSpace(remaining)
+	return blocks, remaining
 }
