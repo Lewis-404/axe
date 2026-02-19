@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/Lewis-404/axe/internal/config"
 )
@@ -190,6 +192,28 @@ func (c *AnthropicClient) SendStream(system string, messages []Message, cb Strea
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
+	}
+
+	// retry on rate limit (429) or server error (529/500)
+	if resp.StatusCode == 429 || resp.StatusCode == 529 || resp.StatusCode == 500 {
+		resp.Body.Close()
+		for retry := 0; retry < 3; retry++ {
+			wait := time.Duration(2<<retry) * time.Second
+			fmt.Fprintf(os.Stderr, "⏳ API %d, retrying in %s...\n", resp.StatusCode, wait)
+			time.Sleep(wait)
+			httpReq2, _ := http.NewRequest("POST", url, bytes.NewReader(body))
+			httpReq2.Header.Set("Content-Type", "application/json")
+			httpReq2.Header.Set("x-api-key", c.model.APIKey)
+			httpReq2.Header.Set("anthropic-version", "2023-06-01")
+			resp, err = c.http.Do(httpReq2)
+			if err != nil {
+				return nil, fmt.Errorf("send request: %w", err)
+			}
+			if resp.StatusCode == 200 {
+				break
+			}
+			resp.Body.Close()
+		}
 	}
 	defer resp.Body.Close()
 

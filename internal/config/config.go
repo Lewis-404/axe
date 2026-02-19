@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -116,23 +118,48 @@ func Init() error {
 		return fmt.Errorf("config already exists: %s", path)
 	}
 
-	template := `# Axe 配置文件
-# 至少配置一个模型，支持多个模型自动 fallback
-models:
-  - provider: anthropic          # anthropic 或 openai
-    api_key: "your-api-key"
-    base_url: "https://api.anthropic.com"
-    model: "claude-sonnet-4-20250514"
-    max_tokens: 8192
+	reader := bufio.NewReader(os.Stdin)
+	prompt := func(label, def string) string {
+		if def != "" {
+			fmt.Printf("%s [%s]: ", label, def)
+		} else {
+			fmt.Printf("%s: ", label)
+		}
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return def
+		}
+		return line
+	}
 
-  # 备用模型（可选，第一个失败时自动切换）
-  # - provider: openai
-  #   api_key: "sk-xxx"
-  #   base_url: "https://api.openai.com"
-  #   model: "gpt-4o"
-  #   max_tokens: 8192
-`
-	return os.WriteFile(path, []byte(template), 0600)
+	fmt.Println("🪓 Axe 配置向导")
+	fmt.Println()
+
+	provider := prompt("Provider (anthropic/openai)", "anthropic")
+	apiKey := prompt("API Key", "")
+	baseURL := "https://api.anthropic.com"
+	if provider == "openai" {
+		baseURL = "https://api.openai.com"
+	}
+	baseURL = prompt("Base URL", baseURL)
+	model := "claude-sonnet-4-20250514"
+	if provider == "openai" {
+		model = "gpt-4o"
+	}
+	model = prompt("Model", model)
+	maxTokens := prompt("Max Tokens", "8192")
+
+	content := fmt.Sprintf(`# Axe 配置文件
+models:
+  - provider: %s
+    api_key: "%s"
+    base_url: "%s"
+    model: "%s"
+    max_tokens: %s
+`, provider, apiKey, baseURL, model, maxTokens)
+
+	return os.WriteFile(path, []byte(content), 0600)
 }
 
 // LoadProjectConfig loads .axe/settings.yaml from the given project dir

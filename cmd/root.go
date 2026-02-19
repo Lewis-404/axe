@@ -376,6 +376,7 @@ func Run(args []string) {
 
 	// interactive mode
 	fmt.Printf("🪓 Axe %s — vibe coding agent\n", Version)
+	fmt.Printf("   📁 %s | 🤖 %s | 🔧 %d tools\n", filepath.Base(dir), client.ModelName(), len(registry.Definitions()))
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
