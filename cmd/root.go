@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Lewis-404/axe/internal/agent"
+	"github.com/Lewis-404/axe/internal/commands"
 	"github.com/Lewis-404/axe/internal/config"
 	"github.com/Lewis-404/axe/internal/context"
 	"github.com/Lewis-404/axe/internal/git"
@@ -47,7 +50,7 @@ func Run(args []string) {
 	}
 
 	if len(args) > 0 && args[0] == "version" {
-		fmt.Println("axe v0.3.0")
+		fmt.Println("axe v0.4.0")
 		return
 	}
 
@@ -65,6 +68,27 @@ func Run(args []string) {
 		return
 	}
 
+	// --print: non-interactive mode (output only text, auto-allow all tools)
+	printMode := false
+	for i, a := range args {
+		if a == "--print" || a == "-p" {
+			printMode = true
+			args = append(args[:i], args[i+1:]...)
+			break
+		}
+	}
+
+	// stdin pipe: read prompt from stdin if not a terminal
+	if !printMode {
+		if stat, _ := os.Stdin.Stat(); stat.Mode()&os.ModeCharDevice == 0 {
+			data, _ := io.ReadAll(bufio.NewReader(os.Stdin))
+			if len(data) > 0 {
+				args = append(args, strings.TrimSpace(string(data)))
+				printMode = true
+			}
+		}
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		ui.PrintError(err)
@@ -73,12 +97,27 @@ func Run(args []string) {
 
 	dir, _ := os.Getwd()
 	history.SetProjectDir(dir)
+
+	// merge project-level config
+	if pc := config.LoadProjectConfig(dir); pc != nil {
+		cfg.Merge(pc)
+	}
+
 	ctx := context.Collect(dir)
 	sys := fmt.Sprintf(systemPrompt, ctx)
 
 	perms := permissions.Load()
 
-	registry := tools.NewRegistry(tools.RegistryOpts{
+	var registryOpts tools.RegistryOpts
+	if printMode {
+		// auto-allow everything in print mode
+		registryOpts = tools.RegistryOpts{
+			Confirm:          func(string) bool { return true },
+			ConfirmOverwrite: func(string, int, int) bool { return true },
+			ConfirmEdit:      func(string, string, string) bool { return true },
+		}
+	} else {
+		registryOpts = tools.RegistryOpts{
 		Confirm: func(cmd string) bool {
 			if allowed, found := perms.Check("execute_command", cmd); found {
 				if allowed {
@@ -141,7 +180,9 @@ func Run(args []string) {
 				return false
 			}
 		},
-	})
+		}
+	}
+	registry := tools.NewRegistry(registryOpts)
 
 	// Auto-verify: run build check after file modifications
 	registry.SetPostExecHook(func(name string, input json.RawMessage, result string) string {
@@ -176,24 +217,35 @@ func Run(args []string) {
 	})
 	client := llm.NewClient(cfg.Models, registry.Definitions())
 	ag := agent.New(client, registry, sys)
-	ag.OnTextDelta(ui.PrintTextDelta)
-	ag.OnBlockDone(ui.PrintBlockDone)
-	ag.OnTool(ui.PrintTool)
-	ag.OnUsage(func(roundIn, roundOut, totalIn, totalOut int) {
-		model := client.ModelName()
-		roundCost := pricing.Cost(model, roundIn, roundOut)
-		totalCost := pricing.Cost(model, totalIn, totalOut)
-		if totalCost > 0 {
-			fmt.Printf("📊 本轮: ↑%s ↓%s ($%.4f) | 累计: ↑%s ↓%s ($%.4f)\n",
-				fmtTokens(roundIn), fmtTokens(roundOut), roundCost,
-				fmtTokens(totalIn), fmtTokens(totalOut), totalCost)
-		} else {
-			ui.PrintUsage(roundIn, roundOut, totalIn, totalOut)
-		}
-	})
-	ag.OnCompact(func(before, after int) {
-		fmt.Printf("🗜️ 上下文已压缩: ~%dk → ~%dk tokens\n", before/1000, after/1000)
-	})
+
+	if printMode {
+		// minimal output: only final text
+		var output strings.Builder
+		ag.OnTextDelta(func(s string) { output.WriteString(s) })
+		ag.OnBlockDone(func() {
+			fmt.Print(output.String())
+			output.Reset()
+		})
+	} else {
+		ag.OnTextDelta(ui.PrintTextDelta)
+		ag.OnBlockDone(ui.PrintBlockDone)
+		ag.OnTool(ui.PrintTool)
+		ag.OnUsage(func(roundIn, roundOut, totalIn, totalOut int) {
+			model := client.ModelName()
+			roundCost := pricing.Cost(model, roundIn, roundOut)
+			totalCost := pricing.Cost(model, totalIn, totalOut)
+			if totalCost > 0 {
+				fmt.Printf("📊 本轮: ↑%s ↓%s ($%.4f) | 累计: ↑%s ↓%s ($%.4f)\n",
+					fmtTokens(roundIn), fmtTokens(roundOut), roundCost,
+					fmtTokens(totalIn), fmtTokens(totalOut), totalCost)
+			} else {
+				ui.PrintUsage(roundIn, roundOut, totalIn, totalOut)
+			}
+		})
+		ag.OnCompact(func(before, after int) {
+			fmt.Printf("🗜️ 上下文已压缩: ~%dk → ~%dk tokens\n", before/1000, after/1000)
+		})
+	}
 
 	// --resume: restore latest conversation
 	var savePath string
@@ -241,8 +293,12 @@ func Run(args []string) {
 		return
 	}
 
+	// load custom project commands
+	customCmds := commands.LoadProjectCommands(dir)
+	pkgCustomCmds = customCmds
+
 	// interactive mode
-	fmt.Println("🪓 Axe v0.3.0 — vibe coding agent")
+	fmt.Println("🪓 Axe v0.4.0 — vibe coding agent")
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -257,6 +313,27 @@ func Run(args []string) {
 				fmt.Println("👋")
 				return
 			}
+			// handle /project:xxx custom commands
+			if strings.HasPrefix(input, "/project:") {
+				cmdName := strings.TrimPrefix(strings.Fields(input)[0], "/project:")
+				found := false
+				for _, c := range customCmds {
+					if c.Name == cmdName {
+						found = true
+						fmt.Printf("🔧 执行项目命令: %s\n", cmdName)
+						if err := ag.Run(c.Content); err != nil {
+							ui.PrintError(err)
+						}
+						autoCommit(c.Content)
+						autoSave()
+						break
+					}
+				}
+				if !found {
+					fmt.Printf("❌ 未找到项目命令: %s\n", cmdName)
+				}
+				continue
+			}
 			handleSlashCommand(input, ag, client, &savePath)
 			continue
 		}
@@ -268,6 +345,8 @@ func Run(args []string) {
 		fmt.Println()
 	}
 }
+
+var pkgCustomCmds []commands.CustomCommand
 
 func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, savePath *string) {
 	parts := strings.Fields(input)
@@ -391,10 +470,12 @@ func handleSlashCommand(input string, ag *agent.Agent, client *llm.Client, saveP
 		fmt.Println("  /resume <编号>  恢复指定对话（编号从 /list 获取）")
 		fmt.Println("  /model          显示当前和可用模型")
 		fmt.Println("  /model <name>   切换模型")
-		fmt.Println("  /compact [hint]  压缩对话上下文")
 		fmt.Println("  /cost           显示累计 token 用量和费用")
 		fmt.Println("  /exit           退出 Axe")
 		fmt.Println("  /help           显示此帮助")
+		if h := commands.FormatHelp(pkgCustomCmds); h != "" {
+			fmt.Print(h)
+		}
 	default:
 		fmt.Printf("未知命令: %s（输入 /help 查看可用命令）\n", cmd)
 	}

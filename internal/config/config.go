@@ -24,6 +24,15 @@ type Config struct {
 	Models []ModelConfig `yaml:"models"`
 }
 
+// ProjectConfig holds per-project overrides in .axe/settings.yaml
+type ProjectConfig struct {
+	Models       []ModelConfig `yaml:"models,omitempty"`
+	MaxTokens    int           `yaml:"max_tokens,omitempty"`
+	AutoCommit   *bool         `yaml:"auto_commit,omitempty"`
+	AutoVerify   *bool         `yaml:"auto_verify,omitempty"`
+	IgnoreFiles  []string      `yaml:"ignore_files,omitempty"`
+}
+
 func configDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".axe")
@@ -117,4 +126,27 @@ models:
   #   max_tokens: 8192
 `
 	return os.WriteFile(path, []byte(template), 0600)
+}
+
+// LoadProjectConfig loads .axe/settings.yaml from the given project dir
+func LoadProjectConfig(dir string) *ProjectConfig {
+	data, err := os.ReadFile(filepath.Join(dir, ".axe", "settings.yaml"))
+	if err != nil {
+		return nil
+	}
+	var pc ProjectConfig
+	if yaml.Unmarshal(data, &pc) != nil {
+		return nil
+	}
+	return &pc
+}
+
+// Merge applies project-level overrides to the global config
+func (c *Config) Merge(pc *ProjectConfig) {
+	if pc == nil {
+		return
+	}
+	if len(pc.Models) > 0 {
+		c.Models = append(pc.Models, c.Models...)
+	}
 }

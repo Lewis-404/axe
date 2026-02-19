@@ -14,6 +14,9 @@ Go 写的 CLI vibe coding agent。用自然语言描述需求，axe 自动读取
 - 🔐 **权限记忆** — 支持 "Always allow" 记住授权决策，避免重复确认
 - 🗜️ **上下文压缩** — 长对话自动压缩，防止超出 token 限制
 - 🎨 **Markdown 渲染** — 终端中渲染代码高亮、表格、列表等
+- 🔧 **自定义命令** — `.axe/commands/` 目录下定义项目专属命令
+- 📋 **项目级配置** — `.axe/settings.yaml` 覆盖全局配置
+- 🖥️ **Pipe 模式** — `--print` 或 stdin 管道，适合 CI/CD 集成
 - ⌨️ **中文友好** — 完整的 CJK 输入支持
 
 ## 安装
@@ -76,6 +79,13 @@ axe
 # 单次执行
 axe "帮我写一个 HTTP server"
 
+# 非交互模式（只输出文本，自动允许所有操作）
+axe --print "解释这段代码"
+
+# 管道模式
+echo "帮我写一个排序函数" | axe
+cat error.log | axe "分析这个错误"
+
 # 恢复上次对话
 axe --resume
 
@@ -104,7 +114,9 @@ axe version
 | `/model` | 查看当前和可用模型 |
 | `/model <name>` | 切换模型 |
 | `/cost` | 查看累计 token 用量和费用 |
+| `/project:<name>` | 执行自定义项目命令 |
 | `/help` | 显示命令列表 |
+| `/exit` | 退出 Axe |
 
 ## 工具
 
@@ -144,6 +156,49 @@ axe 会自动读取项目根目录的以下文件：
 ### 对话历史
 
 对话按项目维度存储在 `~/.axe/history/<project>/` 下，不同项目的历史互不干扰。
+
+### 项目级配置
+
+在项目根目录创建 `.axe/settings.yaml` 可覆盖全局配置：
+
+```yaml
+# 项目专用模型（优先于全局配置）
+models:
+  - provider: openai
+    api_key: "sk-xxx"
+    model: "gpt-4o"
+    max_tokens: 16384
+```
+
+### 自定义命令
+
+在 `.axe/commands/` 目录下创建 `.md` 文件，文件名即命令名：
+
+```bash
+# 创建命令
+mkdir -p .axe/commands
+echo "运行所有测试并修复失败的用例" > .axe/commands/fix-tests.md
+echo "检查代码风格，修复 lint 问题" > .axe/commands/lint.md
+
+# 使用
+/project:fix-tests
+/project:lint
+```
+
+### Pipe 模式
+
+`--print` 模式适合脚本和 CI/CD 集成：
+
+```bash
+# 代码审查
+git diff | axe "审查这些变更"
+
+# 错误分析
+cat error.log | axe "分析错误原因"
+
+# 生成文档
+axe --print "为 main.go 生成 godoc 注释" > doc.go
+```
 
 ## License
 

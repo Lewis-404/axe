@@ -51,6 +51,8 @@ models:
 ### CLI 命令
 - `axe` — 进入交互式对话
 - `axe "prompt"` — 单次执行模式
+- `axe --print "prompt"` — 非交互模式（只输出文本，自动允许所有操作）
+- `echo "prompt" | axe` — 管道模式（等同 --print）
 - `axe --resume` — 恢复最近一次对话
 - `axe --list` — 列出最近 10 次对话
 - `axe init` — 初始化配置文件
@@ -66,7 +68,13 @@ models:
 - `/model` — 查看当前和可用模型
 - `/model <name>` — 运行时切换模型
 - `/cost` — 查看累计 token 用量和费用
+- `/project:<name>` — 执行自定义项目命令（从 .axe/commands/*.md 加载）
 - `/help` — 显示命令列表
+
+### 配置层级
+1. 全局配置：`~/.axe/config.yaml`
+2. 项目配置：`.axe/settings.yaml`（覆盖全局配置中的模型等设置）
+3. 自定义命令：`.axe/commands/*.md`（文件名即命令名，内容作为 prompt）
 
 ## 项目结构
 ```
@@ -92,7 +100,9 @@ axe/
 │   │   ├── search.go
 │   │   ├── glob.go       # 文件名模式搜索
 │   │   └── think.go
-│   ├── context/          # 项目上下文收集（CLAUDE.md、.axeignore、智能检测）
+│   ├── commands/         # 自定义项目命令
+│   │   └── commands.go
+│   ├── context/          # 项目上下文收集 + CLAUDE.md 生成
 │   │   └── collector.go
 │   ├── config/           # 配置管理
 │   │   └── config.go
@@ -104,8 +114,9 @@ axe/
 │   │   └── pricing.go
 │   ├── git/              # 自动 git commit
 │   │   └── git.go
-│   └── ui/               # 终端 UI（readline + streaming 输出）
-│       └── chat.go
+│   └── ui/               # 终端 UI（readline + streaming + Markdown 渲染）
+│       ├── chat.go
+│       └── render.go
 ├── go.mod
 ├── go.sum
 └── README.md
