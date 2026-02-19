@@ -1,20 +1,26 @@
 package ui
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
-	"github.com/chzyer/readline"
+	"github.com/Lewis-404/axe/internal/llm"
+	"github.com/nyaosorg/go-readline-ny"
+	"github.com/nyaosorg/go-readline-ny/completion"
+	"github.com/nyaosorg/go-readline-ny/keys"
 )
 
-// SlashCmd defines a slash command for hints.
-type SlashCmd struct {
-	Name string
-	Desc string
+var editor *readline.Editor
+
+type slashCmd struct {
+	name string
+	desc string
 }
 
-var slashCommands = []SlashCmd{
+var slashCommands = []slashCmd{
 	{"/clear", "清空对话上下文并清屏"},
 	{"/list", "查看最近对话记录"},
 	{"/resume", "恢复对话（可加编号）"},
@@ -24,96 +30,85 @@ var slashCommands = []SlashCmd{
 	{"/exit", "退出 Axe"},
 }
 
-// slashHinter implements readline.Listener for real-time command hints.
-type slashHinter struct {
-	hintLines int
-}
+var lastHintLines int
 
-func (h *slashHinter) OnChange(line []rune, pos int, key rune) ([]rune, int, bool) {
-	// Clear previous hints
-	h.clearHints()
-
-	// line already reflects the current buffer state (character already added/removed)
-	s := string(line)
-
-	if !strings.HasPrefix(s, "/") || len(s) < 2 || strings.Contains(s, " ") {
-		return line, pos, false
-	}
-
-	var matches []SlashCmd
-	for _, cmd := range slashCommands {
-		if strings.HasPrefix(cmd.Name, s) {
-			matches = append(matches, cmd)
-		}
-	}
-
-	if len(matches) > 0 {
-		var buf strings.Builder
-		buf.WriteString("\033[s") // save cursor
-		for _, m := range matches {
-			buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.Name, m.Desc))
-		}
-		buf.WriteString("\033[u") // restore cursor
-		os.Stdout.WriteString(buf.String())
-		h.hintLines = len(matches)
-	}
-
-	return line, pos, false
-}
-
-func (h *slashHinter) clearHints() {
-	if h.hintLines == 0 {
+func clearHints() {
+	if lastHintLines == 0 {
 		return
 	}
 	var buf strings.Builder
 	buf.WriteString("\033[s") // save cursor
-	for i := 0; i < h.hintLines; i++ {
+	for i := 0; i < lastHintLines; i++ {
 		buf.WriteString("\n\033[2K") // move down + clear line
 	}
 	buf.WriteString("\033[u") // restore cursor
 	os.Stdout.WriteString(buf.String())
-	h.hintLines = 0
+	lastHintLines = 0
 }
 
-// ClearSlashHints clears any remaining hint lines (call before output).
-func ClearSlashHints() {
-	if hinter != nil {
-		hinter.clearHints()
+func showHints(line string) {
+	clearHints()
+	if !strings.HasPrefix(line, "/") || len(line) < 2 || strings.Contains(line, " ") {
+		return
 	}
+	var matches []slashCmd
+	for _, cmd := range slashCommands {
+		if strings.HasPrefix(cmd.name, line) {
+			matches = append(matches, cmd)
+		}
+	}
+	if len(matches) == 0 {
+		return
+	}
+	var buf strings.Builder
+	buf.WriteString("\033[s") // save cursor
+	for _, m := range matches {
+		buf.WriteString(fmt.Sprintf("\n  \033[36m%s\033[0m  \033[90m%s\033[0m", m.name, m.desc))
+	}
+	buf.WriteString("\033[u") // restore cursor
+	os.Stdout.WriteString(buf.String())
+	lastHintLines = len(matches)
 }
-
-var rl *readline.Instance
-var hinter *slashHinter
 
 func init() {
-	hinter = &slashHinter{}
-
-	var completer []readline.PrefixCompleterInterface
-	for _, cmd := range slashCommands {
-		completer = append(completer, readline.PcItem(cmd.Name))
+	editor = &readline.Editor{
+		PromptWriter: func(w io.Writer) (int, error) {
+			return io.WriteString(w, "\033[36m❯\033[0m ")
+		},
+		Writer: os.Stdout,
+		AfterCommand: func(b *readline.Buffer) {
+			showHints(b.String())
+		},
 	}
 
-	var err error
-	rl, err = readline.NewEx(&readline.Config{
-		Prompt:          "you> ",
-		InterruptPrompt: "^C",
-		EOFPrompt:       "quit",
-		AutoComplete:    readline.NewPrefixCompleter(completer...),
-		Listener:        hinter,
+	// Tab completion for slash commands
+	editor.BindKey(keys.CtrlI, &completion.CmdCompletionOrList2{
+		Postfix: " ",
+		Candidates: func(field []string) (forComp []string, forList []string) {
+			if len(field) == 1 && strings.HasPrefix(field[0], "/") {
+				var matches []string
+				for _, cmd := range slashCommands {
+					if strings.HasPrefix(cmd.name, field[0]) {
+						matches = append(matches, cmd.name)
+					}
+				}
+				return matches, matches
+			}
+			return nil, nil
+		},
 	})
-	if err != nil {
-		panic(err)
-	}
 }
 
 func ReadLine(prompt string) string {
-	rl.SetPrompt(prompt)
-	line, err := rl.Readline()
+	clearHints()
+	editor.PromptWriter = func(w io.Writer) (int, error) {
+		return io.WriteString(w, prompt)
+	}
+	line, err := editor.ReadLine(context.Background())
+	clearHints()
 	if err != nil {
 		return ""
 	}
-	// Clear hints after Enter
-	hinter.clearHints()
 	return strings.TrimSpace(line)
 }
 
@@ -182,9 +177,7 @@ func ClearScreen() {
 }
 
 func CloseRL() {
-	if rl != nil {
-		rl.Close()
-	}
+	// no-op for go-readline-ny
 }
 
 func truncate(s string, n int) string {
@@ -193,4 +186,25 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "..."
+}
+
+// PrintHistory displays conversation messages after resume.
+func PrintHistory(msgs []llm.Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	fmt.Println("\033[90m── 对话历史 ──\033[0m")
+	for _, m := range msgs {
+		for _, b := range m.Content {
+			if b.Type == "text" && b.Text != "" {
+				if m.Role == llm.RoleUser {
+					fmt.Printf("\033[36m❯\033[0m %s\n\n", b.Text)
+				} else {
+					fmt.Printf("🪓 %s\n\n", b.Text)
+				}
+			}
+		}
+	}
+	fmt.Println("\033[90m── 以上为历史 ──\033[0m")
+	fmt.Println()
 }
