@@ -209,10 +209,10 @@ func PrintTool(name, input string) {
 }
 
 func PrintUsage(roundIn, roundOut, totalIn, totalOut int) {
-	fmt.Printf("📊 本轮: ↑%s ↓%s | 累计: ↑%s ↓%s\n", fmtTokens(roundIn), fmtTokens(roundOut), fmtTokens(totalIn), fmtTokens(totalOut))
+	fmt.Printf("📊 本轮: ↑%s ↓%s | 累计: ↑%s ↓%s\n", FmtTokens(roundIn), FmtTokens(roundOut), FmtTokens(totalIn), FmtTokens(totalOut))
 }
 
-func fmtTokens(n int) string {
+func FmtTokens(n int) string {
 	if n >= 1000 {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
@@ -220,7 +220,7 @@ func fmtTokens(n int) string {
 }
 
 func PrintTotalUsage(totalIn, totalOut int) {
-	fmt.Printf("📊 累计: ↑%s ↓%s\n", fmtTokens(totalIn), fmtTokens(totalOut))
+	fmt.Printf("📊 累计: ↑%s ↓%s\n", FmtTokens(totalIn), FmtTokens(totalOut))
 }
 
 func PrintError(err error) {
