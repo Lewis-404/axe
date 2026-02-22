@@ -30,6 +30,7 @@ type MCPServer struct {
 type Config struct {
 	Models     []ModelConfig        `yaml:"models"`
 	MCPServers map[string]MCPServer `yaml:"mcp_servers,omitempty"`
+	AutoVerify *bool                `yaml:"auto_verify,omitempty"`
 }
 
 // ProjectConfig holds per-project overrides in .axe/settings.yaml
@@ -179,6 +180,9 @@ func LoadProjectConfig(dir string) *ProjectConfig {
 func (c *Config) Merge(pc *ProjectConfig) {
 	if pc == nil {
 		return
+	}
+	if pc.AutoVerify != nil {
+		c.AutoVerify = pc.AutoVerify
 	}
 	if len(pc.Models) > 0 {
 		c.Models = append(pc.Models, c.Models...)

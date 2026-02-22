@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Lewis-404/axe/internal/llm"
+	runewidth "github.com/mattn/go-runewidth"
 	"github.com/nyaosorg/go-box/v3"
 	"github.com/nyaosorg/go-readline-ny"
 	"github.com/nyaosorg/go-readline-ny/keys"
@@ -162,11 +163,11 @@ func getTermWidth() int {
 func displayLines(text string, width int) int {
 	lines := 0
 	for _, line := range strings.Split(text, "\n") {
-		r := []rune(line)
-		if len(r) == 0 {
+		w := runewidth.StringWidth(line)
+		if w == 0 {
 			lines++
 		} else {
-			lines += (len(r) + width - 1) / width
+			lines += (w + width - 1) / width
 		}
 	}
 	return lines

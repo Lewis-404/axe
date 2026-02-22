@@ -25,19 +25,25 @@ func expandHome(path string) string {
 	return path
 }
 
-// imagePathRe matches file paths ending with image extensions
-var imagePathRe = regexp.MustCompile(`(?:~?/)?[\w./_-]+\.(?:png|jpg|jpeg|gif|webp)\b`)
+// imagePathRe matches file paths ending with image extensions.
+// Uses .+? (non-greedy) to support spaces, CJK chars, parens, etc.
+var imagePathRe = regexp.MustCompile(`(?:\./|~?/).+?\.(?:png|jpg|jpeg|gif|webp)\b`)
 
 // ParseImageBlocks extracts image file paths from input, returns image blocks + remaining text
 func ParseImageBlocks(input string) ([]ContentBlock, string) {
-	matches := imagePathRe.FindAllString(input, -1)
-	if len(matches) == 0 {
+	locs := imagePathRe.FindAllStringIndex(input, -1)
+	if len(locs) == 0 {
 		return nil, input
 	}
 
 	var blocks []ContentBlock
 	remaining := input
-	for _, m := range matches {
+	for _, loc := range locs {
+		// skip URLs (e.g. http://xxx.png)
+		if loc[0] > 0 && input[loc[0]-1] == ':' {
+			continue
+		}
+		m := input[loc[0]:loc[1]]
 		path := expandHome(m)
 		data, err := os.ReadFile(path)
 		if err != nil {

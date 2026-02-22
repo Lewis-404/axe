@@ -267,8 +267,9 @@ func Run(args []string) {
 		sys += "\n\n" + catalog
 	}
 
-	// Auto-verify: run build check after file modifications
-	registry.SetPostExecHook(func(name string, input json.RawMessage, result string) string {
+	// Auto-verify: run build check after file modifications (default: on)
+	if cfg.AutoVerify == nil || *cfg.AutoVerify {
+		registry.SetPostExecHook(func(name string, input json.RawMessage, result string) string {
 		if name != "write_file" && name != "edit_file" {
 			return ""
 		}
@@ -347,6 +348,7 @@ func Run(args []string) {
 		}
 		return ""
 	})
+	}
 	client := llm.NewClient(cfg.Models, registry.Definitions())
 	ag := agent.New(client, registry, sys)
 
