@@ -104,7 +104,7 @@ type AnthropicClient struct {
 }
 
 func NewAnthropicClient(m *config.ModelConfig, tools []ToolDef) *AnthropicClient {
-	return &AnthropicClient{model: m, http: &http.Client{}, tools: tools}
+	return &AnthropicClient{model: m, http: &http.Client{Timeout: 5 * time.Minute}, tools: tools}
 }
 
 func (c *AnthropicClient) ModelName() string { return c.model.Model }
@@ -213,6 +213,9 @@ func (c *AnthropicClient) SendStream(system string, messages []Message, cb Strea
 				break
 			}
 			resp.Body.Close()
+		}
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("API error (%d) after retries", resp.StatusCode)
 		}
 	}
 	defer resp.Body.Close()

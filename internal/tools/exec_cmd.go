@@ -7,7 +7,12 @@ import (
 	"strings"
 )
 
-var dangerousPrefixes = []string{"rm -rf /", "sudo rm", "mkfs", "dd if=", "> /dev/"}
+var dangerousPrefixes = []string{
+	"rm -rf /", "sudo rm", "mkfs", "dd if=", "> /dev/",
+	"rm -rf ~", "rm -rf .", "chmod 777 /", "chown root",
+	"curl|sh", "curl |sh", "wget|sh", "wget |sh",
+	":(){ :|:", "shutdown", "reboot", "init 0", "init 6",
+}
 
 type ExecCmd struct {
 	confirm func(string) bool

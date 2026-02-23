@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/Lewis-404/axe/internal/config"
 )
@@ -106,7 +108,7 @@ type OpenAIClient struct {
 }
 
 func NewOpenAIClient(m *config.ModelConfig, tools []ToolDef) *OpenAIClient {
-	return &OpenAIClient{model: m, http: &http.Client{}, tools: tools}
+	return &OpenAIClient{model: m, http: &http.Client{Timeout: 5 * time.Minute}, tools: tools}
 }
 
 func (c *OpenAIClient) ModelName() string { return c.model.Model }
@@ -282,6 +284,26 @@ func (c *OpenAIClient) SendStream(system string, messages []Message, cb StreamCa
 	resp, err := c.doRequest(body)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
+	}
+
+	if resp.StatusCode == 429 || resp.StatusCode == 500 || resp.StatusCode == 529 {
+		resp.Body.Close()
+		for retry := 0; retry < 3; retry++ {
+			wait := time.Duration(2<<retry) * time.Second
+			fmt.Fprintf(os.Stderr, "⏳ API %d, retrying in %s...\n", resp.StatusCode, wait)
+			time.Sleep(wait)
+			resp, err = c.doRequest(body)
+			if err != nil {
+				return nil, fmt.Errorf("send request: %w", err)
+			}
+			if resp.StatusCode == 200 {
+				break
+			}
+			resp.Body.Close()
+		}
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("API error (%d) after retries", resp.StatusCode)
+		}
 	}
 	defer resp.Body.Close()
 

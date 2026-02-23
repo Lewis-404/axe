@@ -5,15 +5,44 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
+
+const maxBgOutput = 64 * 1024 // 64KB max per process
+
+// cappedBuffer is a bytes.Buffer that discards old data when exceeding maxSize.
+type cappedBuffer struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	maxSize int
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.buf.Write(p)
+	if c.buf.Len() > c.maxSize {
+		// keep only the last maxSize bytes
+		b := c.buf.Bytes()
+		c.buf.Reset()
+		c.buf.Write(b[len(b)-c.maxSize:])
+	}
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
 
 type bgProc struct {
 	ID      int
 	Cmd     string
 	Process *exec.Cmd
-	Output  *bytes.Buffer
+	Output  *cappedBuffer
 	Started time.Time
 	Done    bool
 	Err     error
@@ -60,10 +89,15 @@ func (t *BgCommand) Execute(input json.RawMessage) (string, error) {
 		if p.Command == "" {
 			return "", fmt.Errorf("command is required for start")
 		}
+		for _, prefix := range dangerousPrefixes {
+			if strings.HasPrefix(strings.TrimSpace(p.Command), prefix) {
+				return "", fmt.Errorf("blocked dangerous command: %s", p.Command)
+			}
+		}
 		if t.confirm != nil && !t.confirm(p.Command) {
 			return "", fmt.Errorf("command rejected by user")
 		}
-		buf := &bytes.Buffer{}
+		buf := &cappedBuffer{maxSize: maxBgOutput}
 		cmd := exec.Command("sh", "-c", p.Command)
 		cmd.Stdout = buf
 		cmd.Stderr = buf
@@ -124,9 +158,6 @@ func (t *BgCommand) Execute(input json.RawMessage) (string, error) {
 			return "", fmt.Errorf("process [%d] not found", p.ID)
 		}
 		out := proc.Output.String()
-		if len(out) > 5000 {
-			out = out[len(out)-5000:]
-		}
 		if out == "" {
 			out = "(no output yet)"
 		}

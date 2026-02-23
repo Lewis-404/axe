@@ -41,6 +41,18 @@ Rules:
 Project context:
 %s`
 
+// appState holds all runtime state for an axe session.
+type appState struct {
+	cfg       *config.Config
+	dir       string
+	client    *llm.Client
+	ag        *agent.Agent
+	registry  *tools.Registry
+	savePath  string
+	printMode bool
+	autoMode  bool
+}
+
 func setupRegistry(perms *permissions.Store, printMode, autoMode bool) *tools.Registry {
 	var opts tools.RegistryOpts
 	if printMode || autoMode {
@@ -213,7 +225,6 @@ func setupAutoVerify(registry *tools.Registry, cfg *config.Config) {
 	})
 }
 
-// findProjectRoot walks up from dir looking for a marker file (e.g. go.mod).
 func findProjectRoot(dir, marker string) string {
 	for d := dir; ; d = filepath.Dir(d) {
 		if _, err := os.Stat(filepath.Join(d, marker)); err == nil {
@@ -226,58 +237,24 @@ func findProjectRoot(dir, marker string) string {
 	return dir
 }
 
-func Run(args []string) {
-	if len(args) > 0 && args[0] == "init" {
-		if err := config.Init(); err != nil {
-			ui.PrintError(err)
-			os.Exit(1)
-		}
-		fmt.Println("✅ Config created at ~/.axe/config.yaml")
-		fmt.Println("   Edit it to add your API key.")
-		return
-	}
-
-	if len(args) > 0 && args[0] == "version" {
-		fmt.Printf("axe %s\n", Version)
-		return
-	}
-
-	if len(args) > 0 && args[0] == "--list" {
-		lines, err := history.ListRecentIndexed(10)
-		if err != nil {
-			ui.PrintError(err)
-			os.Exit(1)
-		}
-		fmt.Println("Recent conversations:")
-		for _, l := range lines {
-			fmt.Println(l)
-		}
-		return
-	}
-
-	printMode := false
-	autoMode := false
-	for i := len(args) - 1; i >= 0; i-- {
-		switch args[i] {
+// parseFlags extracts --print/-p and --auto from args, returns cleaned args.
+func parseFlags(args []string) (cleaned []string, printMode, autoMode bool) {
+	cleaned = args
+	for i := len(cleaned) - 1; i >= 0; i-- {
+		switch cleaned[i] {
 		case "--print", "-p":
 			printMode = true
-			args = append(args[:i], args[i+1:]...)
+			cleaned = append(cleaned[:i], cleaned[i+1:]...)
 		case "--auto":
 			autoMode = true
-			args = append(args[:i], args[i+1:]...)
+			cleaned = append(cleaned[:i], cleaned[i+1:]...)
 		}
 	}
+	return
+}
 
-	if !printMode {
-		if stat, _ := os.Stdin.Stat(); stat.Mode()&os.ModeCharDevice == 0 {
-			data, _ := io.ReadAll(bufio.NewReader(os.Stdin))
-			if len(data) > 0 {
-				args = append(args, strings.TrimSpace(string(data)))
-				printMode = true
-			}
-		}
-	}
-
+// initSession loads config, sets up registry/client/agent, returns appState.
+func initSession(args []string, printMode, autoMode bool) (*appState, []*mcp.Client) {
 	cfg, err := config.Load()
 	if err != nil {
 		ui.PrintError(err)
@@ -311,11 +288,6 @@ func Run(args []string) {
 			registry.Register(&t)
 		}
 	}
-	defer func() {
-		for _, mc := range mcpClients {
-			mc.Close()
-		}
-	}()
 
 	// load skills
 	home, _ := os.UserHomeDir()
@@ -336,19 +308,32 @@ func Run(args []string) {
 	client := llm.NewClient(cfg.Models, registry.Definitions())
 	ag := agent.New(client, registry, sys)
 
-	if printMode {
+	return &appState{
+		cfg:       cfg,
+		dir:       dir,
+		client:    client,
+		ag:        ag,
+		registry:  registry,
+		printMode: printMode,
+		autoMode:  autoMode,
+	}, mcpClients
+}
+
+// setupCallbacks wires up agent event handlers based on mode.
+func (s *appState) setupCallbacks() {
+	if s.printMode {
 		var output strings.Builder
-		ag.OnTextDelta(func(s string) { output.WriteString(s) })
-		ag.OnBlockDone(func() {
+		s.ag.OnTextDelta(func(t string) { output.WriteString(t) })
+		s.ag.OnBlockDone(func() {
 			fmt.Print(output.String())
 			output.Reset()
 		})
 	} else {
-		ag.OnTextDelta(ui.PrintTextDelta)
-		ag.OnBlockDone(ui.PrintBlockDone)
-		ag.OnTool(ui.PrintTool)
-		ag.OnUsage(func(roundIn, roundOut, totalIn, totalOut int) {
-			model := client.ModelName()
+		s.ag.OnTextDelta(ui.PrintTextDelta)
+		s.ag.OnBlockDone(ui.PrintBlockDone)
+		s.ag.OnTool(ui.PrintTool)
+		s.ag.OnUsage(func(roundIn, roundOut, totalIn, totalOut int) {
+			model := s.client.ModelName()
 			roundCost := pricing.Cost(model, roundIn, roundOut)
 			totalCost := pricing.Cost(model, totalIn, totalOut)
 			if totalCost > 0 {
@@ -359,61 +344,36 @@ func Run(args []string) {
 				ui.PrintUsage(roundIn, roundOut, totalIn, totalOut)
 			}
 		})
-		ag.OnCompact(func(before, after int) {
+		s.ag.OnCompact(func(before, after int) {
 			fmt.Printf("🗜️ 上下文已压缩: ~%dk → ~%dk tokens\n", before/1000, after/1000)
 		})
 	}
+}
 
-	// --resume
-	var savePath string
-	resume := len(args) > 0 && args[0] == "--resume"
-	if resume {
-		p, msgs, err := history.LoadLatest()
-		if err != nil {
-			ui.PrintError(err)
-			os.Exit(1)
-		}
-		resumeConversation(ag, p, msgs, &savePath, "已恢复对话并刷新项目上下文")
-		args = args[1:]
-	} else {
-		savePath = history.NewFilePath()
-	}
-
-	autoSave := func() {
-		if msgs := ag.Messages(); len(msgs) > 0 {
-			if err := history.SaveTo(savePath, msgs); err != nil {
-				ui.PrintError(fmt.Errorf("save history: %w", err))
-			}
+func (s *appState) autoSave() {
+	if msgs := s.ag.Messages(); len(msgs) > 0 {
+		if err := history.SaveTo(s.savePath, msgs); err != nil {
+			ui.PrintError(fmt.Errorf("save history: %w", err))
 		}
 	}
+}
 
-	autoCommit := func(input string) {
-		if git.IsRepo(dir) && git.HasChanges(dir) {
-			if hash, err := git.AutoCommit(dir, input); err == nil {
-				fmt.Printf("\n📦 Auto-commit: %s\n", hash)
-			}
+func (s *appState) autoCommit(input string) {
+	if git.IsRepo(s.dir) && git.HasChanges(s.dir) {
+		if hash, err := git.AutoCommit(s.dir, input); err == nil {
+			fmt.Printf("\n📦 Auto-commit: %s\n", hash)
 		}
 	}
+}
 
-	// single-shot mode
-	if len(args) > 0 {
-		prompt := strings.Join(args, " ")
-		if err := ag.Run(prompt); err != nil {
-			ui.PrintError(err)
-			os.Exit(1)
-		}
-		autoCommit(prompt)
-		autoSave()
-		return
-	}
-
-	// load custom project commands
-	customCmds := commands.LoadProjectCommands(dir)
+// runInteractive starts the REPL loop.
+func (s *appState) runInteractive() {
+	customCmds := commands.LoadProjectCommands(s.dir)
 	pkgCustomCmds = customCmds
 
-	// interactive mode
 	fmt.Printf("🪓 Axe %s — vibe coding agent\n", Version)
-	fmt.Printf("   📁 %s | 🤖 %s | 🔧 %d tools | 📦 %d skills\n", filepath.Base(dir), client.ModelName(), len(registry.Definitions()), len(pkgSkills))
+	fmt.Printf("   📁 %s | 🤖 %s | 🔧 %d tools | 📦 %d skills\n",
+		filepath.Base(s.dir), s.client.ModelName(), len(s.registry.Definitions()), len(pkgSkills))
 	fmt.Println("    Type your request. /help for commands.")
 	fmt.Println()
 
@@ -424,7 +384,7 @@ func Run(args []string) {
 		}
 		if strings.HasPrefix(input, "/") {
 			if input == "/exit" || input == "/quit" {
-				autoSave()
+				s.autoSave()
 				fmt.Println("👋")
 				return
 			}
@@ -435,11 +395,11 @@ func Run(args []string) {
 					if c.Name == cmdName {
 						found = true
 						fmt.Printf("🔧 执行项目命令: %s\n", cmdName)
-						if err := ag.Run(c.Content); err != nil {
+						if err := s.ag.Run(c.Content); err != nil {
 							ui.PrintError(err)
 						}
-						autoCommit(c.Content)
-						autoSave()
+						s.autoCommit(c.Content)
+						s.autoSave()
 						break
 					}
 				}
@@ -449,35 +409,115 @@ func Run(args []string) {
 				continue
 			}
 			cmdName := strings.TrimPrefix(strings.Fields(input)[0], "/")
-			if s := skills.FindSkill(pkgSkills, cmdName); s != nil {
-				content, err := skills.ReadSkillContent(*s)
+			if sk := skills.FindSkill(pkgSkills, cmdName); sk != nil {
+				content, err := skills.ReadSkillContent(*sk)
 				if err != nil {
 					ui.PrintError(err)
 				} else {
-					ag.InjectContext(fmt.Sprintf("[Skill: %s]\n%s", s.Name, content))
-					fmt.Printf("🧩 已激活技能: %s\n", s.Name)
+					s.ag.InjectContext(fmt.Sprintf("[Skill: %s]\n%s", sk.Name, content))
+					fmt.Printf("🧩 已激活技能: %s\n", sk.Name)
 					rest := strings.TrimSpace(strings.TrimPrefix(input, "/"+cmdName))
 					if rest == "" {
-						rest = strings.TrimSpace(strings.TrimPrefix(input, "/"+s.Name))
+						rest = strings.TrimSpace(strings.TrimPrefix(input, "/"+sk.Name))
 					}
 					if rest != "" {
-						if err := ag.Run(rest); err != nil {
+						if err := s.ag.Run(rest); err != nil {
 							ui.PrintError(err)
 						}
-						autoCommit(rest)
-						autoSave()
+						s.autoCommit(rest)
+						s.autoSave()
 					}
 				}
 				continue
 			}
-			handleSlashCommand(input, ag, client, &savePath)
+			handleSlashCommand(input, s.ag, s.client, &s.savePath)
 			continue
 		}
-		if err := ag.Run(input); err != nil {
+		if err := s.ag.Run(input); err != nil {
 			ui.PrintError(err)
 		}
-		autoCommit(input)
-		autoSave()
+		s.autoCommit(input)
+		s.autoSave()
 		fmt.Println()
 	}
+}
+
+func Run(args []string) {
+	// subcommands that don't need full init
+	if len(args) > 0 {
+		switch args[0] {
+		case "init":
+			if err := config.Init(); err != nil {
+				ui.PrintError(err)
+				os.Exit(1)
+			}
+			fmt.Println("✅ Config created at ~/.axe/config.yaml")
+			fmt.Println("   Edit it to add your API key.")
+			return
+		case "version":
+			fmt.Printf("axe %s\n", Version)
+			return
+		case "--list":
+			lines, err := history.ListRecentIndexed(10)
+			if err != nil {
+				ui.PrintError(err)
+				os.Exit(1)
+			}
+			fmt.Println("Recent conversations:")
+			for _, l := range lines {
+				fmt.Println(l)
+			}
+			return
+		}
+	}
+
+	args, printMode, autoMode := parseFlags(args)
+
+	// pipe mode: read stdin
+	if !printMode {
+		if stat, _ := os.Stdin.Stat(); stat.Mode()&os.ModeCharDevice == 0 {
+			data, _ := io.ReadAll(bufio.NewReader(os.Stdin))
+			if len(data) > 0 {
+				args = append(args, strings.TrimSpace(string(data)))
+				printMode = true
+			}
+		}
+	}
+
+	state, mcpClients := initSession(args, printMode, autoMode)
+	defer func() {
+		for _, mc := range mcpClients {
+			mc.Close()
+		}
+	}()
+
+	state.setupCallbacks()
+
+	// --resume
+	resume := len(args) > 0 && args[0] == "--resume"
+	if resume {
+		p, msgs, err := history.LoadLatest()
+		if err != nil {
+			ui.PrintError(err)
+			os.Exit(1)
+		}
+		resumeConversation(state.ag, p, msgs, &state.savePath, "已恢复对话并刷新项目上下文")
+		args = args[1:]
+	} else {
+		state.savePath = history.NewFilePath()
+	}
+
+	// single-shot mode
+	if len(args) > 0 {
+		prompt := strings.Join(args, " ")
+		if err := state.ag.Run(prompt); err != nil {
+			ui.PrintError(err)
+			os.Exit(1)
+		}
+		state.autoCommit(prompt)
+		state.autoSave()
+		return
+	}
+
+	state.runInteractive()
 }

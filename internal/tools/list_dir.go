@@ -39,7 +39,7 @@ func (t *ListDir) Execute(input json.RawMessage) (string, error) {
 		}
 		// skip hidden dirs and common noise
 		name := d.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+		if SkipDir(name) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

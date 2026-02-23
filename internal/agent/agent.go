@@ -76,15 +76,24 @@ func (a *Agent) PopLastRound() string {
 	return ""
 }
 
-// estimateTokens roughly estimates token count (~4 chars per token for mixed CJK/English)
+// estimateTokens roughly estimates token count.
+// ASCII ~4 chars/token, CJK ~1.5 chars/token.
 func estimateTokens(msgs []llm.Message) int {
-	chars := 0
+	ascii, nonASCII := 0, 0
 	for _, m := range msgs {
 		for _, b := range m.Content {
-			chars += len(b.Text) + len(b.Content) + len(fmt.Sprintf("%v", b.Input))
+			for _, r := range b.Text {
+				if r < 128 {
+					ascii++
+				} else {
+					nonASCII++
+				}
+			}
+			extra := b.Content + fmt.Sprintf("%v", b.Input)
+			ascii += len(extra)
 		}
 	}
-	return chars / 3 // conservative estimate for mixed content
+	return ascii/4 + nonASCII*2/3
 }
 
 // Compact compresses conversation history into a summary via LLM
@@ -287,8 +296,8 @@ func (a *Agent) Run(userInput string) error {
 				hasError = true
 				toolResults[i] = llm.ContentBlock{Type: "tool_result", ToolID: block.ID, Content: fmt.Sprintf("Error: %s", err), IsError: true}
 			} else {
-				if len(result) > 10000 {
-					result = result[:10000] + "\n... (truncated)"
+				if len([]rune(result)) > 10000 {
+					result = string([]rune(result)[:10000]) + "\n... (truncated)"
 				}
 				toolResults[i] = llm.ContentBlock{Type: "tool_result", ToolID: block.ID, Content: result}
 			}

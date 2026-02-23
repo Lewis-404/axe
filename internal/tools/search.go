@@ -31,6 +31,8 @@ func (t *SearchFiles) Execute(input json.RawMessage) (string, error) {
 	}
 	cmd := exec.Command("grep", "-rn", "--include=*.go", "--include=*.yaml", "--include=*.yml",
 		"--include=*.json", "--include=*.md", "--include=*.txt", "--include=*.mod",
+		"--include=*.py", "--include=*.js", "--include=*.ts", "--include=*.tsx", "--include=*.jsx",
+		"--include=*.rs", "--include=*.toml", "--include=*.cfg", "--include=*.sh",
 		"-I", p.Pattern, p.Path)
 	out, err := cmd.CombinedOutput()
 	result := strings.TrimSpace(string(out))

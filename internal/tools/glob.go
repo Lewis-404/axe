@@ -42,7 +42,7 @@ func (g *Glob) Execute(input json.RawMessage) (string, error) {
 			return nil
 		}
 		name := d.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+		if SkipDir(name) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

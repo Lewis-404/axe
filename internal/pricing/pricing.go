@@ -18,8 +18,18 @@ var prices = map[string]ModelPrice{
 	"gpt-4o":               {2.5, 10.0},
 	"gpt-4o-mini":          {0.15, 0.6},
 	"gpt-4-turbo":          {10.0, 30.0},
+	"gpt-4.1":              {2.0, 8.0},
+	"gpt-4.1-mini":         {0.4, 1.6},
+	"gpt-4.1-nano":         {0.1, 0.4},
+	"o1":                   {15.0, 60.0},
+	"o1-mini":              {1.1, 4.4},
+	"o1-pro":               {150.0, 600.0},
+	"o3":                   {2.0, 8.0},
+	"o3-mini":              {1.1, 4.4},
+	"o4-mini":              {1.1, 4.4},
 	"deepseek-chat":        {0.27, 1.10},
 	"deepseek-coder":       {0.14, 0.28},
+	"deepseek-reasoner":    {0.55, 2.19},
 }
 
 func Lookup(model string) (ModelPrice, bool) {

@@ -8,15 +8,17 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Client connects to an MCP server via stdio (JSON-RPC 2.0)
 type Client struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	mu     sync.Mutex
-	nextID atomic.Int64
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdoutRaw io.ReadCloser
+	stdout    *bufio.Reader
+	mu        sync.Mutex
+	nextID    atomic.Int64
 }
 
 type jsonRPCRequest struct {
@@ -71,7 +73,7 @@ func NewClient(command string, args ...string) (*Client, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start mcp server: %w", err)
 	}
-	c := &Client{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
+	c := &Client{cmd: cmd, stdin: stdin, stdoutRaw: stdout, stdout: bufio.NewReader(stdout)}
 
 	// initialize
 	if _, err := c.call("initialize", map[string]any{
@@ -143,25 +145,42 @@ func (c *Client) call(method string, params any) (json.RawMessage, error) {
 	}
 
 	// read response lines, skip notifications
-	for {
-		line, err := c.stdout.ReadBytes('\n')
-		if err != nil {
-			return nil, fmt.Errorf("read response: %w", err)
+	type result struct {
+		data json.RawMessage
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		for {
+			line, err := c.stdout.ReadBytes('\n')
+			if err != nil {
+				ch <- result{nil, fmt.Errorf("read response: %w", err)}
+				return
+			}
+			var resp jsonRPCResponse
+			if json.Unmarshal(line, &resp) != nil {
+				continue
+			}
+			if resp.ID == 0 || resp.ID != id {
+				continue
+			}
+			if resp.Error != nil {
+				ch <- result{nil, fmt.Errorf("rpc error %d: %s", resp.Error.Code, resp.Error.Message)}
+				return
+			}
+			ch <- result{resp.Result, nil}
+			return
 		}
-		var resp jsonRPCResponse
-		if json.Unmarshal(line, &resp) != nil {
-			continue
-		}
-		if resp.ID == 0 {
-			continue // notification, skip
-		}
-		if resp.ID != id {
-			continue
-		}
-		if resp.Error != nil {
-			return nil, fmt.Errorf("rpc error %d: %s", resp.Error.Code, resp.Error.Message)
-		}
-		return resp.Result, nil
+	}()
+
+	select {
+	case r := <-ch:
+		return r.data, r.err
+	case <-time.After(30 * time.Second):
+		// close stdout pipe to unblock the goroutine's ReadBytes
+		c.stdoutRaw.Close()
+		<-ch // wait for goroutine to exit
+		return nil, fmt.Errorf("mcp call %q timed out after 30s", method)
 	}
 }
 

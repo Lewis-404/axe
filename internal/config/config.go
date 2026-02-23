@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -149,18 +150,29 @@ func Init() error {
 		model = "gpt-4o"
 	}
 	model = prompt("Model", model)
-	maxTokens := prompt("Max Tokens", "8192")
+	maxTokensStr := prompt("Max Tokens", "8192")
+	maxTok := 8192
+	if v, err := strconv.Atoi(maxTokensStr); err == nil {
+		maxTok = v
+	}
 
-	content := fmt.Sprintf(`# Axe 配置文件
-models:
-  - provider: %s
-    api_key: "%s"
-    base_url: "%s"
-    model: "%s"
-    max_tokens: %s
-`, provider, apiKey, baseURL, model, maxTokens)
+	cfg := Config{
+		Models: []ModelConfig{
+			{
+				Provider:  provider,
+				APIKey:    apiKey,
+				BaseURL:   baseURL,
+				Model:     model,
+				MaxTokens: maxTok,
+			},
+		},
+	}
+	content, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
 
-	return os.WriteFile(path, []byte(content), 0600)
+	return os.WriteFile(path, content, 0600)
 }
 
 // LoadProjectConfig loads .axe/settings.yaml from the given project dir
